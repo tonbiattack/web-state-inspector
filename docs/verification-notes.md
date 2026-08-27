@@ -97,3 +97,15 @@ Networkイベントの`performanceMs`はDevTools側の原点、User Action・Sto
 Selected DOMはElementsパネルで明示選択した`$0`だけを取得する仕様である。CDPによる自動検証ではElementsパネルの利用者選択を再現せず、`selected-element-service.test.mjs`で`$0`限定、最小項目、`outerHTML`非使用を回帰検査した。手動確認時は、Elementsで対象ノードを選び、Web State Inspectorの**Capture Selected Element**を押す。
 
 最終の`pnpm run verify`では、TypeScript型検査、`dist/`組み立て、Node標準テスト**27件**がすべて成功した。追加した回帰検査は、User Action・Route ChangeをDebugSessionへ統合すること、ページとDevToolsで異なる`performance.now()`値でもISO timestamp順に整列すること、AI Exportが指定順で`Current State`まで出力すること、ISO timestamp近接時だけ`possibly related`を表示することを含む。
+
+
+## 2026-08-28: Auto Refresh時のJSON展開状態保持
+
+Storage一覧はバックグラウンド更新時に内容を再描画するため、従来は`<details>`要素の開閉状態が初期化され、**JSONを表示**で展開済みの内容が閉じていた。Storage種別とキーから作る安定した展開状態キーを導入し、`toggle`イベントで保存した開閉状態を再描画後の`details.open`へ復元するよう変更した。
+
+この変更により、Auto RefreshおよびTimeline記録中の700ms追従のどちらでも、同じJSON形式のStorage項目は展開状態を保ったまま最新値へ更新される。利用者が閉じた項目は次回以降も閉じた状態になる。`pnpm run verify`では、型検査、配布物生成、既存回帰に加え、キー単位の展開状態保持とStorage JSONビューへの開閉同期を検査する2件を追加し、合計29件すべてが成功した。
+
+
+続く動画確認では、JSON概要のクリックとほぼ同時に再描画が発生し得ることを考慮する必要があると分かった。`toggle`イベントだけに状態保存を任せると、ブラウザのイベント配送より先にAuto Refresh、手動Refresh、または記録中追従の再描画が走る余地がある。そこでsummaryの`click`時に、既存の`details.open`を反転した値を**先行保存**し、後続の`toggle`でも実際の状態を同期する二段階の実装へ変更した。
+
+最終ビルドを読み込んだ実Chromeの拡張コンテキストでは、概要クリック直後かつ`toggle`処理前に再描画を模した場合も、保存済み状態と新しい`details.open`がいずれも`true`となることを確認した。このため、Auto Refresh、Timeline記録中追従、手動Refreshなど、Storage一覧を再描画する経路でも展開済みJSONは閉じずに値が更新される。

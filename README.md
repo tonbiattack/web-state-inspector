@@ -35,7 +35,7 @@
 
 左側のStorageまたはFrameworkカテゴリを選ぶと、対象ページの現在値を読み取ります。Local StorageとSession Storageでは、一覧上部の **Auto Refresh** をオンにすると、`500 ms`、`1 s`、`2 s`、`5 s`から選んだ間隔で現在の一覧だけを再取得します。Auto Refreshの既定値はオフです。
 
-State Change TimelineまたはDebug Recordingが記録中であれば、Local StorageとSession Storageの一覧はAuto Refreshの設定にかかわらず`700 ms`間隔で追従します。Cookie、IndexedDB、Cache Storage、Framework Stateに無制限のポーリングは行いません。
+State Change TimelineまたはDebug Recordingが記録中であれば、Local StorageとSession Storageの一覧はAuto Refreshの設定にかかわらず`700 ms`間隔で追従します。Cookie、IndexedDB、Cache Storage、Framework Stateに無制限のポーリングは行いません。**JSONを表示で展開したStorage項目は、バックグラウンド更新後も開いたまま値だけを更新します。**
 
 ### Debug RecordingとUnified Timeline
 

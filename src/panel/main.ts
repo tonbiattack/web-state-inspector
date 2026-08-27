@@ -3,6 +3,7 @@ import { ChangeTracker } from './change-tracker.js';
 import { DebugSession } from './debug-session.js';
 import { ErrorCollector } from './error-collector.js';
 import { InteractionTracker } from './interaction-tracker.js';
+import { JsonExpansionState } from './json-expansion-state.js';
 import { matchesNetworkFilter } from './network-collector.js';
 import { PageEvaluator } from './page-evaluator.js';
 import { emptyReproductionNotes, normalizeReproductionNotes } from './reproduction-notes.js';
@@ -48,6 +49,7 @@ let afterSnapshotLabel = 'Snapshot 2';
 let selectedElementSnapshots: SelectedElementSnapshot[] = [];
 let reproductionNotes: ReproductionNotes = emptyReproductionNotes();
 let changeTrackingActive = false;
+const jsonExpansionState = new JsonExpansionState();
 const root = document.querySelector<HTMLDivElement>('#app');
 
 if (!root) throw new Error('Panel root was not found.');
@@ -133,7 +135,7 @@ function copyButton(text: string): HTMLButtonElement {
   return button;
 }
 
-function jsonView(value: unknown, collapsed = true): HTMLElement {
+function jsonView(value: unknown, collapsed = true, expansionKey?: string): HTMLElement {
   const wrapper = element('div', 'json');
   const output = formatJson(value);
   if (!collapsed) {
@@ -143,6 +145,16 @@ function jsonView(value: unknown, collapsed = true): HTMLElement {
   }
   const details = element('details') as HTMLDetailsElement;
   const summary = element('summary', undefined, 'JSON を表示');
+  if (expansionKey) {
+    details.open = jsonExpansionState.isExpanded(expansionKey);
+    // toggleは非同期に配送されるため、1秒未満の更新でも状態を失わないよう、操作時に先行して保存する。
+    summary.addEventListener('click', () => {
+      jsonExpansionState.setExpanded(expansionKey, !details.open);
+    });
+    details.addEventListener('toggle', () => {
+      jsonExpansionState.setExpanded(expansionKey, details.open);
+    });
+  }
   details.append(summary, copyButton(output), element('pre', 'value-text', output));
   wrapper.append(details);
   return wrapper;
@@ -225,7 +237,7 @@ function renderStorage(entries: StorageEntry[]): HTMLElement {
     row.append(element('td', 'key-cell', entry.key));
     const valueCell = element('td', 'value-cell');
     if (entry.isJson) {
-      valueCell.append(jsonView(entry.parsedValue));
+      valueCell.append(jsonView(entry.parsedValue, true, `storage-json:${state.selected}:${entry.key}`));
     } else {
       valueCell.append(copyButton(entry.value), element('pre', 'value-text', entry.value));
     }
