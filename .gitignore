@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# TypeScript intermediate output (dist/ is the unpacked Chrome extension and is committed)
+build/
+
+# Locally generated delivery archives
+*.zip
+
+# OS/editor artifacts
+.DS_Store
+.idea/
+.vscode/

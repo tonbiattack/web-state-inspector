@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Web State Inspector",
+  "version": "0.1.0",
+  "description": "Read-only DevTools inspector for browser storage and explicit framework diagnostics.",
+  "devtools_page": "devtools.html",
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "permissions": ["cookies"],
+  "host_permissions": ["<all_urls>"]
+}

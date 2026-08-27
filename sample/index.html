@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web State Inspector — Demo</title>
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #14161a; color: #e7eaf0; }
+      body { max-width: 960px; margin: 0 auto; padding: 32px 20px 60px; }
+      h1 { margin-bottom: 8px; } h2 { margin-top: 28px; font-size: 18px; }
+      p, li { color: #b7bdc9; line-height: 1.65; } code { color: #9cdcfe; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+      .card { border: 1px solid #373d49; border-radius: 8px; padding: 16px; background: #1c2027; }
+      .card h3 { margin: 0 0 8px; font-size: 15px; } pre { overflow: auto; padding: 12px; border-radius: 6px; background: #101216; color: #dcdcaa; }
+      .ready { display: inline-block; border-radius: 100px; padding: 4px 9px; background: #1f5c3a; color: #c4f2d5; font-size: 12px; font-weight: 700; }
+      .hint { border-left: 3px solid #3794ff; padding: 10px 13px; background: #1b2838; }
+    </style>
+  </head>
+  <body>
+    <h1>Web State Inspector — Demo</h1>
+    <p>このページは、拡張の読み取り専用表示を確認するためのローカルデモです。ページの読み込み後にDevToolsの <code>Web State Inspector</code> パネルで <strong>Refresh</strong> を押してください。</p>
+    <p><span id="status" class="ready">Preparing storage…</span></p>
+
+    <div class="hint">
+      Framework Stateは、対象アプリが <code>window.__WEB_STATE_INSPECTOR__</code> を明示的に公開した場合だけ表示されます。このデモはその安全な任意接続を実演します。
+    </div>
+
+    <h2>Storage</h2>
+    <div class="grid">
+      <section class="card"><h3>localStorage</h3><pre id="local-preview"></pre></section>
+      <section class="card"><h3>sessionStorage</h3><pre id="session-preview"></pre></section>
+      <section class="card"><h3>Cookie</h3><pre id="cookie-preview"></pre></section>
+      <section class="card"><h3>IndexedDB / Cache Storage</h3><pre id="async-preview">Preparing…</pre></section>
+    </div>
+
+    <h2>Vue + Pinia</h2>
+    <section class="card" id="vue-root">Loading Vue sample…</section>
+
+    <h2>React + TanStack Query</h2>
+    <section class="card" id="react-root">Loading React Query sample…</section>
+
+    <script type="module">
+      import { createApp, computed, h } from 'https://esm.sh/vue@3.5.13';
+      import { createPinia, defineStore } from 'https://esm.sh/pinia@2.2.6';
+      import React from 'https://esm.sh/react@18.3.1';
+      import { createRoot } from 'https://esm.sh/react-dom@18.3.1/client';
+      import { QueryClient, QueryClientProvider, useQuery } from 'https://esm.sh/@tanstack/react-query@5.62.8?deps=react@18.3.1';
+
+      const localData = { userId: 123, name: 'Taro', roles: ['developer', 'admin'] };
+      const sessionData = { draftId: 'draft-42', lastVisitedAt: new Date().toISOString() };
+      localStorage.setItem('wsi.demo.user', JSON.stringify(localData));
+      localStorage.setItem('wsi.demo.greeting', 'plain string value');
+      sessionStorage.setItem('wsi.demo.session', JSON.stringify(sessionData));
+      sessionStorage.setItem('wsi.demo.tab', 'current tab only');
+      document.cookie = 'wsi_demo_cookie=inspectable; Path=/; SameSite=Lax; Max-Age=3600';
+      document.querySelector('#local-preview').textContent = JSON.stringify(localData, null, 2);
+      document.querySelector('#session-preview').textContent = JSON.stringify(sessionData, null, 2);
+      document.querySelector('#cookie-preview').textContent = document.cookie;
+
+      async function prepareIndexedDb() {
+        await new Promise((resolve, reject) => {
+          const request = indexedDB.open('wsi-demo-db', 1);
+          request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains('users')) db.createObjectStore('users', { keyPath: 'id' });
+            if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
+          };
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            const db = request.result;
+            const transaction = db.transaction(['users', 'settings'], 'readwrite');
+            transaction.objectStore('users').put({ id: 1, name: 'Taro', team: 'platform' });
+            transaction.objectStore('users').put({ id: 2, name: 'Hanako', team: 'web' });
+            transaction.objectStore('settings').put({ key: 'theme', value: 'dark' });
+            transaction.oncomplete = () => { db.close(); resolve(); };
+            transaction.onerror = () => reject(transaction.error);
+          };
+        });
+      }
+
+      async function prepareCache() {
+        const cache = await caches.open('wsi-demo-cache-v1');
+        await cache.put('/api/profile', new Response(JSON.stringify({ id: 123, name: 'Taro' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        await cache.put('/assets/demo.txt', new Response('Cached demo asset', { status: 200, statusText: 'OK' }));
+      }
+
+      const useUserStore = defineStore('userStore', {
+        state: () => ({ userId: 123, name: 'Taro', authenticated: true }),
+        actions: { signOut() { this.authenticated = false; } },
+      });
+      const useCartStore = defineStore('cartStore', {
+        state: () => ({ items: [{ sku: 'keyboard', quantity: 1 }], coupon: 'WELCOME' }),
+        getters: { itemCount: (state) => state.items.reduce((total, item) => total + item.quantity, 0) },
+      });
+      const pinia = createPinia();
+      const userStore = useUserStore(pinia);
+      const cartStore = useCartStore(pinia);
+      createApp({
+        setup() {
+          const itemCount = computed(() => cartStore.itemCount);
+          return () => h('div', [
+            h('strong', userStore.name),
+            ` — authenticated: ${userStore.authenticated}`,
+            h('br'),
+            `Cart: ${itemCount.value} item(s), coupon: ${cartStore.coupon}`,
+          ]);
+        },
+      }).use(pinia).mount('#vue-root');
+
+      const queryClient = new QueryClient();
+      await queryClient.prefetchQuery({
+        queryKey: ['user', 123],
+        queryFn: async () => ({ id: 123, name: 'Taro', plan: 'pro' }),
+        staleTime: 60_000,
+      });
+      function QueryDemo() {
+        const query = useQuery({ queryKey: ['user', 123], queryFn: async () => ({ id: 123, name: 'Taro', plan: 'pro' }) });
+        return React.createElement('div', null, React.createElement('strong', null, 'Query status: '), query.status, React.createElement('pre', null, JSON.stringify(query.data, null, 2)));
+      }
+      createRoot(document.querySelector('#react-root')).render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(QueryDemo)));
+
+      function querySnapshot() {
+        return queryClient.getQueryCache().getAll().map((query) => ({
+          queryKey: query.queryKey,
+          status: query.state.status,
+          data: query.state.data ?? null,
+          updatedAt: query.state.dataUpdatedAt ? new Date(query.state.dataUpdatedAt).toISOString() : null,
+        }));
+      }
+
+      window.__WEB_STATE_INSPECTOR__ = Object.freeze({
+        version: 1,
+        getPinia: () => ({
+          userStore: { ...userStore.$state },
+          cartStore: { ...cartStore.$state, itemCount: cartStore.itemCount },
+        }),
+        getTanStackQuery: () => querySnapshot(),
+      });
+
+      await Promise.all([prepareIndexedDb(), prepareCache()]);
+      document.querySelector('#async-preview').textContent = 'wsi-demo-db\n├ users (2 records)\n└ settings (1 record)\n\nwsi-demo-cache-v1\n├ /api/profile\n└ /assets/demo.txt';
+      document.querySelector('#status').textContent = 'Storage ready — open DevTools and refresh the panel';
+    </script>
+  </body>
+</html>
