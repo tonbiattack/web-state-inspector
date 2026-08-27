@@ -1,4 +1,4 @@
-import type { AiDebugContext, DebugError, DebugSnapshot, NetworkEntry, RouteChangeEvent, SnapshotDiff, StorageChangeEvent, TimelineEvent, UserActionEvent } from '../shared/types.js';
+import type { AiDebugContext, DebugError, DebugSnapshot, FocusedEventContext, NetworkEntry, RouteChangeEvent, SnapshotDiff, StorageChangeEvent, TimelineEvent, UserActionEvent } from '../shared/types.js';
 
 const MAX_EXPORT_EVENTS = 200;
 const MAX_EXPORT_NETWORK = 100;
@@ -65,8 +65,15 @@ function formatRoute(route: RouteChangeEvent): string {
   return `${new Date(route.timestamp).toLocaleTimeString()} ${route.routeType}\n\n${route.from}\n→\n${route.to}`;
 }
 
+function formatFocusedEvent(focusedEvent: FocusedEventContext, context: AiDebugContext): string {
+  const anchor = focusedEvent.anchor;
+  return `Selected event: ${anchor.kind}\n\nTime: ${anchor.timestamp}\n\nSummary: ${anchor.summary}\n\nWindow: ${focusedEvent.beforeMs / 1000}s before (${focusedEvent.startTimestamp}) → ${focusedEvent.afterMs / 1000}s after (${focusedEvent.endTimestamp})\n\nIncluded: ${context.timeline.length} timeline event(s), ${context.errors.length} error(s), ${context.network.length} network request(s), ${context.storageChanges.length} storage change(s), ${context.userActions.length} user action(s), ${context.routeChanges.length} route change(s)`;
+}
+
 export function createAiDebugContext(args: {
   generatedAt?: string;
+  page?: AiDebugContext['page'];
+  environment?: AiDebugContext['environment'];
   before?: DebugSnapshot;
   after?: DebugSnapshot;
   diff?: SnapshotDiff;
@@ -79,12 +86,13 @@ export function createAiDebugContext(args: {
   routeChanges?: AiDebugContext['routeChanges'];
   selectedElements?: AiDebugContext['selectedElements'];
   reproductionNotes?: AiDebugContext['reproductionNotes'];
+  focusedEvent?: AiDebugContext['focusedEvent'];
 }): AiDebugContext {
   const pageSnapshot = args.after ?? args.before;
   return {
     generatedAt: args.generatedAt ?? new Date().toISOString(),
-    page: pageSnapshot?.page,
-    environment: pageSnapshot?.environment,
+    page: args.page ?? pageSnapshot?.page,
+    environment: args.environment ?? pageSnapshot?.environment,
     session: args.session,
     snapshots: { before: args.before, after: args.after, diff: args.diff },
     network: args.network.slice(-MAX_EXPORT_NETWORK),
@@ -95,6 +103,7 @@ export function createAiDebugContext(args: {
     routeChanges: (args.routeChanges ?? []).slice(-MAX_EXPORT_ROUTES),
     selectedElements: args.selectedElements ?? [],
     reproductionNotes: args.reproductionNotes ?? { expectedResult: '', actualResult: '', reproductionSteps: '', additionalNotes: '' },
+    focusedEvent: args.focusedEvent,
   };
 }
 
@@ -114,6 +123,7 @@ export function formatAiContextMarkdown(context: AiDebugContext): string {
     '> Review this exported context for secrets, tokens, personal data, and customer data before sharing it with any AI service. “Possibly related” means temporal proximity only; it does not prove causality.',
     '## Reproduction Notes',
     `Expected Result:\n\n${notes.expectedResult || 'Not provided'}\n\nActual Result:\n\n${notes.actualResult || 'Not provided'}\n\nReproduction Steps:\n\n${notes.reproductionSteps || 'Not provided'}\n\nAdditional Notes:\n\n${notes.additionalNotes || 'Not provided'}`,
+    ...(context.focusedEvent ? ['## Focused Failure Window', formatFocusedEvent(context.focusedEvent, context)] : []),
     '## JavaScript and Console Events',
     context.errors.length ? context.errors.map(formatError).join('\n\n') : 'No JavaScript or console events recorded.',
     '## Network Errors',
@@ -136,7 +146,7 @@ export function formatAiContextMarkdown(context: AiDebugContext): string {
   const currentState = [
     `URL: ${page?.url ?? 'Not available'}`,
     `Title: ${page?.title ?? 'Not available'}`,
-    `Captured snapshot: ${currentSnapshot ? `${currentSnapshot.label} (${currentSnapshot.timestamp})` : 'Not available'}`,
+    `Captured snapshot: ${currentSnapshot ? `${currentSnapshot.label} (${currentSnapshot.timestamp})` : context.focusedEvent ? 'Omitted from focused export' : 'Not available'}`,
     `Generated at: ${context.generatedAt}`,
     `User Agent: ${environment?.userAgent ?? 'Not available'}`,
     `Viewport: ${environment ? `${environment.viewport.width}x${environment.viewport.height} (DPR ${environment.viewport.devicePixelRatio})` : 'Not available'}`,

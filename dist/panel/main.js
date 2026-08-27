@@ -2,6 +2,7 @@ import { formatAiContextJson, formatAiContextMarkdown, createAiDebugContext } fr
 import { ChangeTracker } from './change-tracker.js';
 import { DebugSession } from './debug-session.js';
 import { ErrorCollector } from './error-collector.js';
+import { createFocusedEventWindow, DEFAULT_CONTEXT_AFTER_MS, DEFAULT_CONTEXT_BEFORE_MS, filterActionsAroundEvent, filterErrorsAroundEvent, filterNetworkAroundEvent, filterRoutesAroundEvent, filterSelectedElementsAroundEvent, filterStorageAroundEvent, filterTimelineAroundEvent, isFailureTimelineEvent } from './focused-event-context.js';
 import { InteractionTracker } from './interaction-tracker.js';
 import { JsonExpansionState } from './json-expansion-state.js';
 import { matchesNetworkFilter } from './network-collector.js';
@@ -29,6 +30,9 @@ let afterSnapshotLabel = 'Snapshot 2';
 let selectedElementSnapshots = [];
 let reproductionNotes = emptyReproductionNotes();
 let changeTrackingActive = false;
+let focusedEventId;
+let focusedBeforeMs = DEFAULT_CONTEXT_BEFORE_MS;
+let focusedAfterMs = DEFAULT_CONTEXT_AFTER_MS;
 const jsonExpansionState = new JsonExpansionState();
 const root = document.querySelector('#app');
 if (!root)
@@ -524,6 +528,21 @@ function renderChangeTimeline(snapshot) {
 function formatTime(timestamp) {
     return new Date(timestamp).toLocaleTimeString();
 }
+function currentFocusedEvent(timeline = debugSession.getTimeline()) {
+    if (!focusedEventId)
+        return undefined;
+    const event = timeline.find((candidate) => candidate.id === focusedEventId);
+    return event && isFailureTimelineEvent(event) ? event : undefined;
+}
+function focusExportOnEvent(eventId) {
+    focusedEventId = eventId;
+    state.selected = 'ai-export';
+    state.query = '';
+    syncStoragePolling();
+    if (debugSession.getStatus().active)
+        startDebugPolling();
+    void refreshPanel();
+}
 function renderDebugControls() {
     const controls = element('div', 'timeline-controls');
     const status = debugSession.getStatus();
@@ -552,16 +571,26 @@ function timelineDetails(event) {
 }
 function renderDebugTimeline() {
     const section = element('section');
-    section.append(renderDebugControls(), element('p', 'summary', 'User Action、Route Change、Storage変更、Networkの開始・完了、JavaScript Error、console.error / warn、Promise rejectionを同一時刻基準で表示します。イベントの近接は因果関係を保証しません。'));
+    section.append(renderDebugControls(), element('p', 'summary', 'User Action、Route Change、Storage変更、Networkの開始・完了、JavaScript Error、console.error / warn、Promise rejectionを同一時刻基準で表示します。500・通信失敗・JavaScript / Console Errorは、周辺だけのAI Export起点として選択できます。イベントの近接は因果関係を保証しません。'));
     const events = debugSession.getTimeline().filter((event) => matchesQuery([event.kind, event.summary, timelineDetails(event)])).slice().reverse();
     if (events.length === 0) {
         section.append(element('div', 'empty', 'Start Recordingを押してから対象アプリを操作してください。'));
         return section;
     }
-    const { table, body } = createTable(['When', 'Type', 'Summary']);
+    const { table, body } = createTable(['When', 'Type', 'Summary', 'Focused export']);
     for (const event of events) {
         const row = element('tr');
-        row.append(element('td', undefined, formatTime(event.timestamp)), element('td', 'key-cell', event.kind), element('td', 'value-cell', timelineDetails(event)));
+        const exportCell = element('td');
+        if (isFailureTimelineEvent(event)) {
+            const exportButton = element('button', 'action-button', 'Export around event');
+            exportButton.type = 'button';
+            exportButton.addEventListener('click', () => { focusExportOnEvent(event.id); });
+            exportCell.append(exportButton);
+        }
+        else {
+            exportCell.textContent = '—';
+        }
+        row.append(element('td', undefined, formatTime(event.timestamp)), element('td', 'key-cell', event.kind), element('td', 'value-cell', timelineDetails(event)), exportCell);
         body.append(row);
     }
     section.append(table);
@@ -584,7 +613,7 @@ function renderNetwork() {
         section.append(element('div', 'empty', '該当するNetwork記録はありません。Start Recording以降の完了リクエストが対象です。'));
         return section;
     }
-    const { table, body } = createTable(['When', 'Method', 'URL', 'Status', 'Duration', 'Details']);
+    const { table, body } = createTable(['When', 'Method', 'URL', 'Status', 'Duration', 'Details', 'Focused export']);
     for (const entry of entries) {
         const detailCell = element('td', 'value-cell');
         const details = element('details');
@@ -595,7 +624,17 @@ function renderNetwork() {
         details.append(element('h4', undefined, 'Response body'), element('pre', 'value-text', entry.responseBody.available ? entry.responseBody.text ?? '' : `Not available: ${entry.responseBody.reason ?? 'Unknown reason.'}`));
         detailCell.append(details);
         const row = element('tr');
-        row.append(element('td', undefined, formatTime(entry.timestamp)), element('td', 'key-cell', entry.method), element('td', 'value-cell', entry.url), element('td', undefined, `${entry.status || '—'} ${entry.statusText}`), element('td', undefined, `${entry.durationMs} ms`), detailCell);
+        const exportCell = element('td');
+        if (entry.status === 0 || entry.status >= 400 || entry.error) {
+            const exportButton = element('button', 'action-button', 'Export around event');
+            exportButton.type = 'button';
+            exportButton.addEventListener('click', () => { focusExportOnEvent(`${entry.id}-response`); });
+            exportCell.append(exportButton);
+        }
+        else {
+            exportCell.textContent = '—';
+        }
+        row.append(element('td', undefined, formatTime(entry.timestamp)), element('td', 'key-cell', entry.method), element('td', 'value-cell', entry.url), element('td', undefined, `${entry.status || '—'} ${entry.statusText}`), element('td', undefined, `${entry.durationMs} ms`), detailCell, exportCell);
         body.append(row);
     }
     section.append(table);
@@ -610,10 +649,20 @@ function renderErrors() {
         section.append(element('div', 'empty', 'JavaScript Errorは記録されていません。'));
         return section;
     }
-    const { table, body } = createTable(['When', 'Kind', 'Message', 'Source', 'Stack']);
+    const { table, body } = createTable(['When', 'Kind', 'Message', 'Source', 'Stack', 'Focused export']);
     for (const error of errors) {
         const row = element('tr');
-        row.append(element('td', undefined, formatTime(error.timestamp)), element('td', 'key-cell', error.kind), element('td', 'value-cell', error.duplicateCount > 1 ? `${error.message} (×${error.duplicateCount})` : error.message), element('td', 'value-cell', error.sourceUrl ? `${error.sourceUrl}:${error.line ?? '?'}:${error.column ?? '?'}` : 'Not available'), element('td', 'value-cell', error.stack.join('\n') || 'Not available'));
+        const exportCell = element('td');
+        if (error.kind !== 'console-warn') {
+            const exportButton = element('button', 'action-button', 'Export around event');
+            exportButton.type = 'button';
+            exportButton.addEventListener('click', () => { focusExportOnEvent(`error-${error.id}`); });
+            exportCell.append(exportButton);
+        }
+        else {
+            exportCell.textContent = '—';
+        }
+        row.append(element('td', undefined, formatTime(error.timestamp)), element('td', 'key-cell', error.kind), element('td', 'value-cell', error.duplicateCount > 1 ? `${error.message} (×${error.duplicateCount})` : error.message), element('td', 'value-cell', error.sourceUrl ? `${error.sourceUrl}:${error.line ?? '?'}:${error.column ?? '?'}` : 'Not available'), element('td', 'value-cell', error.stack.join('\n') || 'Not available'), exportCell);
         body.append(row);
     }
     section.append(table);
@@ -698,9 +747,70 @@ function renderSnapshots() {
     section.append(table);
     return section;
 }
+function renderFocusedExportControls(timeline) {
+    const section = element('section', 'focused-export-controls');
+    section.append(element('h3', undefined, 'Export context around a failure'));
+    const failures = timeline.filter(isFailureTimelineEvent);
+    if (focusedEventId && !currentFocusedEvent(timeline))
+        focusedEventId = undefined;
+    if (failures.length === 0) {
+        section.append(element('p', 'summary', '選択できる失敗イベントはありません。4xx / 5xx・通信失敗・JavaScript / Console Errorを記録すると、前後時間だけの限定Exportを作成できます。'));
+        return section;
+    }
+    const eventLabel = element('label', 'field-label', 'Failure event');
+    const eventSelect = element('select', 'interval-select');
+    const fullOption = element('option');
+    fullOption.value = '';
+    fullOption.textContent = 'Full recording (no focused event)';
+    eventSelect.append(fullOption);
+    for (const failure of failures) {
+        const option = element('option');
+        option.value = failure.id;
+        option.textContent = `${formatTime(failure.timestamp)} · ${failure.kind} · ${truncate(failure.summary, 110)}`;
+        option.selected = failure.id === focusedEventId;
+        eventSelect.append(option);
+    }
+    eventSelect.addEventListener('change', () => {
+        focusedEventId = eventSelect.value || undefined;
+        renderCurrentData();
+    });
+    eventLabel.append(eventSelect);
+    const beforeLabel = element('label', 'field-label', 'Seconds before');
+    const beforeInput = element('input', 'compact-input');
+    beforeInput.type = 'number';
+    beforeInput.min = '0';
+    beforeInput.max = '60';
+    beforeInput.step = '1';
+    beforeInput.value = String(focusedBeforeMs / 1000);
+    beforeInput.addEventListener('input', () => { focusedBeforeMs = Math.max(0, Math.min(60_000, Number(beforeInput.value || 0) * 1000)); });
+    beforeLabel.append(beforeInput);
+    const afterLabel = element('label', 'field-label', 'Seconds after');
+    const afterInput = element('input', 'compact-input');
+    afterInput.type = 'number';
+    afterInput.min = '0';
+    afterInput.max = '60';
+    afterInput.step = '1';
+    afterInput.value = String(focusedAfterMs / 1000);
+    afterInput.addEventListener('input', () => { focusedAfterMs = Math.max(0, Math.min(60_000, Number(afterInput.value || 0) * 1000)); });
+    afterLabel.append(afterInput);
+    const fields = element('div', 'focused-export-fields');
+    fields.append(eventLabel, beforeLabel, afterLabel);
+    section.append(fields);
+    const focused = currentFocusedEvent(timeline);
+    if (focused) {
+        const window = createFocusedEventWindow(focused, focusedBeforeMs, focusedAfterMs);
+        section.append(element('p', 'summary', window ? `${formatTime(window.startTimestamp)} から ${formatTime(window.endTimestamp)} までを出力します。選択イベントと同時刻または近接時刻は因果関係を意味しません。` : '選択イベントの時刻を解釈できないため、限定Exportを生成できません。'));
+        const clearButton = element('button', 'action-button', 'Clear focused event');
+        clearButton.type = 'button';
+        clearButton.addEventListener('click', () => { focusedEventId = undefined; renderCurrentData(); });
+        section.append(clearButton);
+    }
+    return section;
+}
 function renderAiExport() {
     const section = element('section');
     const status = debugSession.getStatus();
+    const timeline = debugSession.getTimeline();
     section.append(element('div', 'notice warning', 'Copy for AIは外部送信を行いません。貼り付け前にCookie、Authorization、token、個人情報、顧客情報などの機密情報を必ず確認してください。'));
     section.append(element('p', 'summary', `Events: ${status.eventCount} · Actions: ${status.userActionCount} · Routes: ${status.routeChangeCount} · Errors: ${status.errorCount} · Network: ${status.networkCount} · Snapshots: ${Number(Boolean(beforeSnapshot)) + Number(Boolean(afterSnapshot))} · Selected DOM: ${selectedElementSnapshots.length}`));
     const notesSection = element('div', 'reproduction-notes');
@@ -736,7 +846,9 @@ function renderAiExport() {
     const copy = element('button', 'action-button', 'Copy for AI');
     copy.type = 'button';
     copy.addEventListener('click', () => { void copyForAi(copy); });
-    section.append(notesSection, formatControls, copy, element('p', 'summary', '再現メモ、JavaScript / Console Error、失敗したNetwork、User Action、Route Change、Storage変更、Unified Timeline、Snapshot Diffの順に優先して出力します。'));
+    const focused = currentFocusedEvent(timeline);
+    copy.textContent = focused ? 'Copy focused context' : 'Copy for AI';
+    section.append(notesSection, renderFocusedExportControls(timeline), formatControls, copy, element('p', 'summary', focused ? '選択した失敗イベントの前後時間内にある操作・Route・Storage・Network・Errorだけを優先して出力します。' : '再現メモ、JavaScript / Console Error、失敗したNetwork、User Action、Route Change、Storage変更、Unified Timeline、Snapshot Diffの順に優先して出力します。'));
     return section;
 }
 async function buildAiContext() {
@@ -749,20 +861,49 @@ async function buildAiContext() {
             selectedSnapshot = captured.data;
         }
     }
-    const diff = beforeSnapshot && afterSnapshot ? diffSnapshots(beforeSnapshot, afterSnapshot) : undefined;
+    const allTimeline = debugSession.getTimeline();
+    const focusedEvent = currentFocusedEvent(allTimeline);
+    const focusedWindow = focusedEvent ? createFocusedEventWindow(focusedEvent, focusedBeforeMs, focusedAfterMs) : undefined;
+    const [allStorageChanges, allUserActions, allRouteChanges] = await Promise.all([
+        debugSession.getStorageChanges(),
+        debugSession.getUserActions(),
+        debugSession.getRouteChanges(),
+    ]);
+    const allNetwork = debugSession.getNetwork();
+    const allErrors = debugSession.getErrors();
+    const timeline = focusedWindow ? filterTimelineAroundEvent(allTimeline, focusedWindow) : allTimeline;
+    const network = focusedWindow ? filterNetworkAroundEvent(allNetwork, focusedWindow) : allNetwork;
+    const errors = focusedWindow ? filterErrorsAroundEvent(allErrors, focusedWindow) : allErrors;
+    const storageChanges = focusedWindow ? filterStorageAroundEvent(allStorageChanges, focusedWindow) : allStorageChanges;
+    const userActions = focusedWindow ? filterActionsAroundEvent(allUserActions, focusedWindow) : allUserActions;
+    const routeChanges = focusedWindow ? filterRoutesAroundEvent(allRouteChanges, focusedWindow) : allRouteChanges;
+    const selectedElements = focusedWindow ? filterSelectedElementsAroundEvent(selectedElementSnapshots, focusedWindow) : selectedElementSnapshots;
+    const fullSession = debugSession.getStatus();
+    const session = focusedWindow ? {
+        ...fullSession,
+        eventCount: timeline.length,
+        networkCount: network.length,
+        errorCount: errors.length,
+        userActionCount: userActions.length,
+        routeChangeCount: routeChanges.length,
+    } : fullSession;
+    const diff = !focusedWindow && beforeSnapshot && afterSnapshot ? diffSnapshots(beforeSnapshot, afterSnapshot) : undefined;
     return createAiDebugContext({
-        before: beforeSnapshot,
-        after: selectedSnapshot === afterSnapshot ? afterSnapshot : undefined,
+        page: focusedWindow ? selectedSnapshot?.page : undefined,
+        environment: focusedWindow ? selectedSnapshot?.environment : undefined,
+        before: focusedWindow ? undefined : beforeSnapshot,
+        after: focusedWindow ? undefined : selectedSnapshot,
         diff,
-        network: debugSession.getNetwork(),
-        errors: debugSession.getErrors(),
-        storageChanges: await debugSession.getStorageChanges(),
-        timeline: debugSession.getTimeline(),
-        session: debugSession.getStatus(),
-        userActions: await debugSession.getUserActions(),
-        routeChanges: await debugSession.getRouteChanges(),
-        selectedElements: selectedElementSnapshots,
+        network,
+        errors,
+        storageChanges,
+        timeline,
+        session,
+        userActions,
+        routeChanges,
+        selectedElements,
         reproductionNotes: normalizeReproductionNotes(reproductionNotes),
+        focusedEvent: focusedWindow,
     });
 }
 async function copyForAi(button) {

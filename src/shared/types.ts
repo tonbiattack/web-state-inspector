@@ -306,6 +306,14 @@ export interface DebugSessionStatus {
   routeChangeCount: number;
 }
 
+export interface FocusedEventContext {
+  anchor: TimelineEvent;
+  beforeMs: number;
+  afterMs: number;
+  startTimestamp: string;
+  endTimestamp: string;
+}
+
 export interface AiDebugContext {
   generatedAt: string;
   page?: SnapshotPageInfo;
@@ -320,6 +328,7 @@ export interface AiDebugContext {
   routeChanges: RouteChangeEvent[];
   selectedElements: SelectedElementSnapshot[];
   reproductionNotes: ReproductionNotes;
+  focusedEvent?: FocusedEventContext;
 }
 
 export interface InteractionTrackingSnapshot {

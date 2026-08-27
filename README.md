@@ -152,7 +152,15 @@ Status: 500 Internal Server Error
 ```
 ~~~~
 
-JSON出力は同じ情報を`page`、`environment`、`session`、`snapshots`、`network`、`errors`、`storageChanges`、`timeline`、`userActions`、`routeChanges`、`selectedElements`、`reproductionNotes`のキーで保持します。AIサービスへ送信する処理は一切ありません。
+JSON出力は同じ情報を`page`、`environment`、`session`、`snapshots`、`network`、`errors`、`storageChanges`、`timeline`、`userActions`、`routeChanges`、`selectedElements`、`reproductionNotes`、限定Export時の`focusedEvent`のキーで保持します。AIサービスへ送信する処理は一切ありません。
+
+### 失敗イベント周辺だけのExport
+
+**Debug / Timeline**、**Debug / Network**、または**Debug / Errors**で、4xx / 5xx、status 0の通信失敗、`javascript-error`、`console-error`、`promise-rejection`の行にある **Export around event** を押します。AI Export画面で失敗イベントを確認し、**Seconds before** と **Seconds after** を指定して **Copy focused context** を押すと、その時間窓内の情報だけを生成します。既定値は失敗の**前5秒・後2秒**で、0〜60秒に変更できます。
+
+限定Exportには、選択した失敗イベントと時間窓、範囲内のTimeline、Network、Error、User Action、Route Change、Storage Change、選択DOMだけを含めます。範囲にまたがるNetworkは、失敗通信のheadersや取得可能なbodyを失わないよう、開始または完了時刻が時間窓と重なる場合に含めます。Snapshot本体とBefore / After Diffは時間基準で安全に限定できないため、限定Exportでは除外し、PageとEnvironmentのメタデータだけを残します。`console.warn`は確認材料として通常Exportには含みますが、単独では失敗イベントの選択対象にしません。
+
+> 限定Exportの「前後時間内」はISO timestampの近接条件です。選択した失敗が周辺イベントの原因であること、または周辺イベントが失敗の原因であることを証明するものではありません。
 
 ## 取得範囲と制約
 
@@ -200,7 +208,7 @@ Debug RecordingのStorage、History API、Console計測は、対象ページの�
 | Collectors | `network-collector.ts`、`error-collector.ts`、`change-tracker.ts`、`interaction-tracker.ts` | 読み取り・計測・上限管理。 |
 | Session | `debug-session.ts` | Storage、Network、Error、User Action、Route Changeを共通Timelineへ集約。 |
 | Snapshot | `snapshot-service.ts`、`selected-element-service.ts` | 現在状態と選択DOMの明示取得、Before / After比較。 |
-| Formatter | `ai-export.ts`、`reproduction-notes.ts` | AI向けMarkdown / JSONのローカル生成と再現メモの正規化。 |
+| Formatter / Focus | `ai-export.ts`、`focused-event-context.ts`、`reproduction-notes.ts` | AI向けMarkdown / JSONのローカル生成、失敗イベント周辺の時間窓選択、再現メモの正規化。 |
 | UI | `main.ts` | DevToolsナビゲーション、記録操作、Snapshot、Copy操作。 |
 
 ## 開発とテスト
@@ -210,7 +218,7 @@ pnpm install
 pnpm run verify
 ```
 
-`pnpm run verify` は、TypeScript型検査、`dist/`組み立て、Node標準テストを連続実行します。テストはNetworkのHAR正規化とフィルタ、response body切り詰め、Network / Timeline上限、Storage変更、Error / Console統合、User Actionのpassword保護とinput debounce、Route Change、Selected DOMの最小取得、Snapshot生成、Before / After Diff、AI Exportの優先順とISO timestamp相関、Auto Refresh、Manifestとアイコン、読み取り専用設計を検証します。
+`pnpm run verify` は、TypeScript型検査、`dist/`組み立て、Node標準テストを連続実行します。テストはNetworkのHAR正規化とフィルタ、response body切り詰め、Network / Timeline上限、Storage変更、Error / Console統合、User Actionのpassword保護とinput debounce、Route Change、Selected DOMの最小取得、Snapshot生成、Before / After Diff、AI Exportの優先順とISO timestamp相関、**失敗イベントを中心とする時間窓の限定Export**、Auto Refresh、Manifestとアイコン、読み取り専用設計を検証します。
 
 動作確認ページは次のコマンドで起動できます。
 
@@ -232,6 +240,7 @@ src/
 │   ├── change-tracker.ts
 │   ├── debug-session.ts
 │   ├── error-collector.ts
+│   ├── focused-event-context.ts
 │   ├── interaction-tracker.ts
 │   ├── main.ts
 │   ├── network-collector.ts

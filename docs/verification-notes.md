@@ -109,3 +109,18 @@ Storage一覧はバックグラウンド更新時に内容を再描画するた�
 続く動画確認では、JSON概要のクリックとほぼ同時に再描画が発生し得ることを考慮する必要があると分かった。`toggle`イベントだけに状態保存を任せると、ブラウザのイベント配送より先にAuto Refresh、手動Refresh、または記録中追従の再描画が走る余地がある。そこでsummaryの`click`時に、既存の`details.open`を反転した値を**先行保存**し、後続の`toggle`でも実際の状態を同期する二段階の実装へ変更した。
 
 最終ビルドを読み込んだ実Chromeの拡張コンテキストでは、概要クリック直後かつ`toggle`処理前に再描画を模した場合も、保存済み状態と新しい`details.open`がいずれも`true`となることを確認した。このため、Auto Refresh、Timeline記録中追従、手動Refreshなど、Storage一覧を再描画する経路でも展開済みJSONは閉じずに値が更新される。
+
+
+## 2026-08-28: 失敗イベント周辺の限定AI Export
+
+最終ビルド済みの`dist/`を展開済み拡張として新規Chromeプロファイルへ読み込み、実拡張のDevTools実行コンテキストでDebug Recordingを開始した。サンプルページでCustomer ID入力と **Action → State → Network → Error** を実行し、Fetch 500の`network-response`を限定Exportの選択イベントにした。
+
+| 確認対象 | 結果 | 観測内容 |
+|---|---:|---|
+| 選択可能な失敗イベント | 成功 | `network-response`のstatus 500を起点として選択できた。通常の`console-warn`は失敗選択対象外である。 |
+| 既定時間窓 | 成功 | 選択イベントの前5秒・後2秒の開始・終了ISO timestampを生成した。 |
+| 限定されたイベント | 成功 | User Action 2件、Storage Change 1件、Route Change 1件、Network 1件、console-error 1件、Timeline 7件を取得した。 |
+| 出力メタデータ | 成功 | Markdownに`Focused Failure Window`、選択イベント、5秒前・2秒後、含有件数を表示した。 |
+| Snapshotの扱い | 成功 | 限定ExportではSnapshot本体とDiffを除外し、`Captured snapshot: Omitted from focused export`を明記した。 |
+
+この実行では連鎖全体が7秒の既定時間窓内に収まったため、全記録7件と限定Timeline 7件は一致した。範囲外イベントの除外、時間窓の境界、開始または完了時刻が時間窓と重なるNetworkの保持、非失敗イベントおよび不正時刻の拒否は`focused-event-context.test.mjs`で自動検証している。限定Exportの時刻近接は因果関係を意味しない。

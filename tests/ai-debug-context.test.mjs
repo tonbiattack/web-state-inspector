@@ -246,3 +246,30 @@ test('DebugSessionはUser ActionとRoute Changeを他のDebugイベントと同�
     api.restore();
   }
 });
+
+
+test('AI Exportは限定コンテキストの選択イベント・時間窓・件数を明示する', async () => {
+  const { createAiDebugContext, formatAiContextJson, formatAiContextMarkdown } = await moduleAt('build/panel/ai-export.js');
+  const anchor = {
+    id: 'network-1-response', timestamp: '2026-08-28T00:00:10.080Z', performanceMs: 90, kind: 'network-response', requestId: 'network-1', method: 'POST', url: 'https://example.test/api/customer/123', status: 500, durationMs: 80, summary: '500 POST https://example.test/api/customer/123 (80 ms)',
+  };
+  const context = createAiDebugContext({
+    generatedAt: '2026-08-28T00:01:00.000Z',
+    network: [{ id: 'network-1', timestamp: '2026-08-28T00:00:10.000Z', performanceMs: 10, method: 'POST', url: 'https://example.test/api/customer/123', status: 500, statusText: 'Internal Server Error', durationMs: 80, requestHeaders: [], requestBody: { available: false }, responseHeaders: [], responseBody: { available: true, text: '{"code":"FAILED"}' } }],
+    errors: [],
+    storageChanges: [],
+    timeline: [anchor],
+    userActions: [],
+    routeChanges: [],
+    session: { active: false, eventCount: 1, networkCount: 1, errorCount: 0, userActionCount: 0, routeChangeCount: 0 },
+    focusedEvent: { anchor, beforeMs: 5000, afterMs: 2000, startTimestamp: '2026-08-28T00:00:05.080Z', endTimestamp: '2026-08-28T00:00:12.080Z' },
+  });
+  const markdown = formatAiContextMarkdown(context);
+  assert.match(markdown, /## Focused Failure Window/);
+  assert.match(markdown, /Selected event: network-response/);
+  assert.match(markdown, /5s before/);
+  assert.match(markdown, /2s after/);
+  assert.match(markdown, /Included: 1 timeline event\(s\), 0 error\(s\), 1 network request\(s\)/);
+  assert.match(markdown, /Captured snapshot: Omitted from focused export/);
+  assert.equal(JSON.parse(formatAiContextJson(context)).focusedEvent.anchor.id, 'network-1-response');
+});

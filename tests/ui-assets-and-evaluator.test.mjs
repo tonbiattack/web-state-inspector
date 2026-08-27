@@ -63,6 +63,12 @@ test('パネルUIは要求されたナビゲーション、検索、Refresh、JS
   assert.match(source, /Expected Result/);
   assert.match(source, /Actual Result/);
   assert.match(source, /Reproduction Steps/);
+  assert.match(source, /Export around event/);
+  assert.match(source, /Export context around a failure/);
+  assert.match(source, /Failure event/);
+  assert.match(source, /Seconds before/);
+  assert.match(source, /Seconds after/);
+  assert.match(source, /Copy focused context/);
   assert.doesNotMatch(source, /\.innerHTML\s*=/);
 });
 
