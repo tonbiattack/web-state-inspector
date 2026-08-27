@@ -37,3 +37,9 @@
 | `sample/no-framework-bridge.html` | TanStack Query | 成功 | `detected: false`。`TanStack Query state is not accessible on this page.` を返却。 |
 
 この結果から、**明示的診断ブリッジを公開したアプリではPiniaおよびTanStack Queryの状態を取得でき、ブリッジがない通常ページでは安全に未検出扱いとなる**ことを確認した。拡張はPiniaまたはQueryClientを推測・走査しないため、任意の既存サイトに対して自動的に状態を取得する機能ではない。
+
+## 2026-08-27: アイコン設定と自動テスト拡充
+
+`static/icons/` にマスター画像とChrome拡張用の16、32、48、128ピクセルPNGを追加し、Manifest V3の`icons`へ登録した。128ピクセル版を目視確認し、濃紺の背景に、コード記号を含む虫眼鏡とStorageスタックが判別できることを確認した。
+
+自動テストは既存の3件から9件へ拡充した。アイコンのManifest定義と実ファイルのPNG署名・寸法、配布物`dist/`へのコピー、要求されたパネルUI要素、サンプルの診断ブリッジ有無、`PageEvaluator`の非同期ブリッジ回収、ページ例外時のエラー処理を追加で検査する。`pnpm run verify`の最終実行では9件すべてが成功した。
