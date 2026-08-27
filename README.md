@@ -19,6 +19,8 @@
 | Debug | Snapshots | ラベル付きのBefore / After Snapshot、JSON構造比較、Elementsで選択した要素だけの最小DOM Snapshot。 |
 | Debug | AI Export | 再現メモを含むMarkdownまたはJSONをローカル生成し、Copy for AIでクリップボードへコピー。 |
 
+詳細な画面操作、同梱デモによる確認手順、AI Exportの使い分け、取得範囲と注意事項は[詳細操作ガイド](docs/user-guide-ja.md)を参照してください。
+
 ## インストール
 
 1. このリポジトリをcloneするか、配布済みの`dist/`フォルダを入手します。
