@@ -1,7 +1,8 @@
-import type { DebugError, DebugSessionStatus, NetworkEntry, StorageChangeEvent, TimelineEvent } from '../shared/types.js';
+import type { DebugError, DebugSessionStatus, NetworkEntry, RouteChangeEvent, StorageChangeEvent, TimelineEvent, UserActionEvent } from '../shared/types.js';
 import { ChangeTracker } from './change-tracker.js';
 import { ErrorCollector } from './error-collector.js';
 import { NetworkCollector } from './network-collector.js';
+import { InteractionTracker } from './interaction-tracker.js';
 
 export const MAX_TIMELINE_EVENTS = 1000;
 
@@ -11,14 +12,19 @@ export class DebugSession {
   private readonly timeline: TimelineEvent[] = [];
   private readonly seenStorageEventIds = new Set<number>();
   private readonly seenErrorIds = new Set<string>();
+  private readonly seenUserActionIds = new Set<string>();
+  private readonly seenRouteChangeIds = new Set<string>();
   private storagePollId: number | undefined;
   private errors: DebugError[] = [];
+  private userActions: UserActionEvent[] = [];
+  private routeChanges: RouteChangeEvent[] = [];
   private readonly network: NetworkCollector;
 
   constructor(
     private readonly storageTracker: ChangeTracker,
     private readonly errorCollector: ErrorCollector,
     now: () => number = () => performance.now(),
+    private readonly interactionTracker?: InteractionTracker,
   ) {
     this.network = new NetworkCollector((entry, events) => {
       if (!this.active) return;
@@ -30,12 +36,20 @@ export class DebugSession {
     if (this.active) return { ok: true, data: this.status() };
     await this.storageTracker.clear();
     await this.errorCollector.clear();
+    await this.interactionTracker?.clear();
     const storage = await this.storageTracker.start(MAX_TIMELINE_EVENTS);
     if (!storage.ok) return { ok: false, error: storage.error ?? 'Storage change tracking could not start.' };
     const errors = await this.errorCollector.start();
     if (!errors.ok) {
       await this.storageTracker.stop();
       return { ok: false, error: errors.error ?? 'JavaScript error tracking could not start.' };
+    }
+    if (this.interactionTracker) {
+      const interactions = await this.interactionTracker.start();
+      if (!interactions.ok) {
+        await Promise.all([this.storageTracker.stop(), this.errorCollector.stop()]);
+        return { ok: false, error: interactions.error ?? 'User action tracking could not start.' };
+      }
     }
     this.clearLocal();
     this.active = true;
@@ -51,14 +65,14 @@ export class DebugSession {
     if (this.storagePollId !== undefined) window.clearInterval(this.storagePollId);
     this.storagePollId = undefined;
     this.network.stop();
-    const [storage, errors] = await Promise.all([this.storageTracker.stop(), this.errorCollector.stop()]);
-    if (!storage.ok || !errors.ok) return { ok: false, error: storage.error ?? errors.error ?? 'Debug recording could not stop cleanly.' };
+    const [storage, errors, interactions] = await Promise.all([this.storageTracker.stop(), this.errorCollector.stop(), this.interactionTracker?.stop() ?? Promise.resolve<{ ok: boolean; error?: string }>({ ok: true })]);
+    if (!storage.ok || !errors.ok || !interactions.ok) return { ok: false, error: storage.error ?? errors.error ?? interactions.error ?? 'Debug recording could not stop cleanly.' };
     return { ok: true, data: this.status() };
   }
 
   async clear(): Promise<{ ok: boolean; data?: DebugSessionStatus; error?: string }> {
-    const [storage, errors] = await Promise.all([this.storageTracker.clear(), this.errorCollector.clear()]);
-    if (!storage.ok || !errors.ok) return { ok: false, error: storage.error ?? errors.error ?? 'Debug recording could not be cleared.' };
+    const [storage, errors, interactions] = await Promise.all([this.storageTracker.clear(), this.errorCollector.clear(), this.interactionTracker?.clear() ?? Promise.resolve<{ ok: boolean; error?: string }>({ ok: true })]);
+    if (!storage.ok || !errors.ok || !interactions.ok) return { ok: false, error: storage.error ?? errors.error ?? interactions.error ?? 'Debug recording could not be cleared.' };
     this.network.clear();
     this.clearLocal();
     if (this.active) this.startedAt = new Date().toISOString();
@@ -74,7 +88,9 @@ export class DebugSession {
   }
 
   getTimeline(): TimelineEvent[] {
-    return this.timeline.slice().sort((left, right) => left.performanceMs - right.performanceMs || left.timestamp.localeCompare(right.timestamp));
+    // Network callback and page-side hooks run in different execution contexts.
+    // Their performance.now() origins are not comparable, so use the wall-clock ISO timestamp.
+    return this.timeline.slice().sort((left, right) => left.timestamp.localeCompare(right.timestamp));
   }
 
   getNetwork(): NetworkEntry[] {
@@ -85,6 +101,16 @@ export class DebugSession {
     return this.errors.map((error) => ({ ...error, stack: [...error.stack] }));
   }
 
+  async getUserActions(): Promise<UserActionEvent[]> {
+    const result = await this.interactionTracker?.getSnapshot();
+    return result?.ok && result.data ? result.data.actions.map((event) => ({ ...event, target: { ...event.target } })) : [];
+  }
+
+  async getRouteChanges(): Promise<RouteChangeEvent[]> {
+    const result = await this.interactionTracker?.getSnapshot();
+    return result?.ok && result.data ? result.data.routes.map((event) => ({ ...event })) : [];
+  }
+
   async getStorageChanges(): Promise<StorageChangeEvent[]> {
     const result = await this.storageTracker.getSnapshot();
     return result.ok && result.data ? result.data.events.map((event) => ({ ...event, stack: [...event.stack] })) : [];
@@ -92,7 +118,7 @@ export class DebugSession {
 
   private async refreshDerivedEvents(): Promise<void> {
     if (!this.active) return;
-    const [storage, errors] = await Promise.all([this.storageTracker.getSnapshot(), this.errorCollector.getErrors()]);
+    const [storage, errors, interactions] = await Promise.all([this.storageTracker.getSnapshot(), this.errorCollector.getErrors(), this.interactionTracker?.getSnapshot() ?? Promise.resolve(undefined)]);
     if (storage.ok && storage.data) {
       for (const event of storage.data.events) {
         if (this.seenStorageEventIds.has(event.id)) continue;
@@ -105,6 +131,20 @@ export class DebugSession {
           summary: `${event.storageArea}.${event.key ?? 'clear'}: ${event.oldValue ?? 'null'} → ${event.newValue ?? 'null'}`,
           storage: { ...event, stack: [...event.stack] },
         }]);
+      }
+    }
+    if (interactions?.ok && interactions.data) {
+      this.userActions = interactions.data.actions.map((event) => ({ ...event, target: { ...event.target } }));
+      this.routeChanges = interactions.data.routes.map((event) => ({ ...event }));
+      for (const event of this.userActions) {
+        if (this.seenUserActionIds.has(event.id)) continue;
+        this.seenUserActionIds.add(event.id);
+        this.addEvents([{ ...event }]);
+      }
+      for (const event of this.routeChanges) {
+        if (this.seenRouteChangeIds.has(event.id)) continue;
+        this.seenRouteChangeIds.add(event.id);
+        this.addEvents([{ ...event }]);
       }
     }
     if (errors.ok && errors.data) {
@@ -133,7 +173,11 @@ export class DebugSession {
     this.timeline.length = 0;
     this.seenStorageEventIds.clear();
     this.seenErrorIds.clear();
+    this.seenUserActionIds.clear();
+    this.seenRouteChangeIds.clear();
     this.errors = [];
+    this.userActions = [];
+    this.routeChanges = [];
   }
 
   private status(): DebugSessionStatus {
@@ -143,6 +187,8 @@ export class DebugSession {
       eventCount: this.timeline.length,
       networkCount: this.network.getEntries().length,
       errorCount: this.errors.length,
+      userActionCount: this.userActions.length,
+      routeChangeCount: this.routeChanges.length,
     };
   }
 }

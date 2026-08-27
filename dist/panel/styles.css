@@ -98,3 +98,46 @@ tr:hover td { background: color-mix(in srgb, var(--surface-alt) 65%, transparent
 .filter-button.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 20%, var(--bg)); color: var(--text); }
 .snapshot-summary { overflow-wrap: anywhere; margin: 8px 0; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); color: var(--muted); font-size: 12px; }
 h4 { margin: 12px 0 6px; font-size: 12px; color: var(--muted); }
+
+.snapshot-label-controls,
+.reproduction-notes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.reproduction-notes {
+  grid-template-columns: 1fr;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.reproduction-notes h3,
+.selected-element-section h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.field-label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.compact-input,
+.notes-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.notes-input { resize: vertical; }
+.selected-element-section { margin-top: 14px; }
+.selected-element-section details { margin: 6px 0; }

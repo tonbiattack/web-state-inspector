@@ -53,6 +53,16 @@ test('パネルUIは要求されたナビゲーション、検索、Refresh、JS
   assert.match(source, /Show Diff/);
   assert.match(source, /Copy for AI/);
   assert.match(source, /Fetch\/XHR/);
+  assert.match(source, /User Action/);
+  assert.match(source, /Route Change/);
+  assert.match(source, /console\.error \/ warn/);
+  assert.match(source, /Capture Selected Element/);
+  assert.match(source, /Before label/);
+  assert.match(source, /After label/);
+  assert.match(source, /Reproduction Notes/);
+  assert.match(source, /Expected Result/);
+  assert.match(source, /Actual Result/);
+  assert.match(source, /Reproduction Steps/);
   assert.doesNotMatch(source, /\.innerHTML\s*=/);
 });
 
@@ -69,6 +79,11 @@ test('動作確認ページは明示的なPiniaとTanStack Queryの診断ブリ�
   assert.match(sample, /api\/debug-context\/fail/);
   assert.match(sample, /console\.error\(error\)/);
   assert.match(sample, /Promise\.reject\(/);
+  assert.match(sample, /customer-password/);
+  assert.match(sample, /history\.pushState/);
+  assert.match(sample, /history\.replaceState/);
+  assert.match(sample, /console\.warn/);
+  assert.match(sample, /Action → State → Network → Error/);
 });
 
 test('ブリッジなしのサンプルはフレームワーク状態を公開しない', async () => {

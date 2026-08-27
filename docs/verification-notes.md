@@ -76,3 +76,24 @@ State Change Timelineが記録中で、Local StorageまたはSession Storageの�
 同じ実拡張コンテキストからSnapshotを収集し、ページタイトル、localStorage 3件、Cookie 1件、IndexedDB 1件、Cache Storage 1件、および明示的診断ブリッジ経由のPinia / TanStack Queryを取得できた。収集結果から生成したMarkdownにはNetwork Errors、status 500、Storage Changes、`wsi.demo.timeline`が含まれることを確認した。
 
 `pnpm run verify`は、Network正規化・フィルタ・response body truncate・Network上限、Debug Sessionの統合Timeline・上限、Snapshot、Diff、Markdown / JSON formatter、Error収集とフック復元、既存Storage・Auto Refresh・Manifest検査を含む22テストが成功した。
+
+
+## 2026-08-28: User Action / Route Change / AI Debug Context 最終検証
+
+最終ビルド済みの`dist/`を新規プロファイルの検証用Chromeへ展開済み拡張として読み込み、DevTools実行コンテキストで`DebugSession`を開始した。サンプルページに対し、Customer IDの入力、passwordの入力、`console.warn`、**Action → State → Network → Error**を順に発生させ、十分なdebounce待機後に同じ実拡張コンテキストから記録を取得した。記録上のUTC時刻`2026-08-27T15:29:09Z`は、日本時間では2026-08-28の実行に相当する。
+
+| 確認対象 | 結果 | 実拡張コンテキストでの観測 |
+|---|---:|---|
+| User Action | 成功 | `click` 2件とdebounce後の`input` 2件、合計4件を取得。対象ボタンは`button#debug-console-warn`および`[data-testid="custom-id"]`として要約された。 |
+| password保護 | 成功 | `input#customer-password`の記録値は`[not captured]`であり、実際に入力した`do-not-export-this`は記録に含まれなかった。 |
+| Route Change | 成功 | `pushState` 1件で、`/sample/`から`/customers/cust-final-123`への前後URLを取得。 |
+| Storage Change | 成功 | `localStorage.selectedCustomerId`の`null`から`cust-final-123`への変更とページ側呼び出し元を取得。 |
+| Console | 成功 | `console-warn` 1件と`console-error` 1件を別種別として取得。 |
+| Network | 成功 | FetchのRequest / Responseを取得し、500、`fetch`、失敗URL、JSON response bodyを確認。 |
+| Unified Timeline | 成功 | 上記を含む10イベントを取得。click → warn / action → Storage・Route・Network → Network Response 500 → console-errorの順にISO timestampで表示された。 |
+
+Networkイベントの`performanceMs`はDevTools側の原点、User Action・Storage・Error・Route Changeの`performanceMs`はページ側の原点であり、同一値として比較できないことを実観測した。そのため、`DebugSession.getTimeline()`とAI Exportの近接判定はISO timestampを基準にする実装へ統一した。Network Request、Storage Change、Route Changeが同一ミリ秒になる場合もあり、この順序は因果関係の証明ではない。
+
+Selected DOMはElementsパネルで明示選択した`$0`だけを取得する仕様である。CDPによる自動検証ではElementsパネルの利用者選択を再現せず、`selected-element-service.test.mjs`で`$0`限定、最小項目、`outerHTML`非使用を回帰検査した。手動確認時は、Elementsで対象ノードを選び、Web State Inspectorの**Capture Selected Element**を押す。
+
+最終の`pnpm run verify`では、TypeScript型検査、`dist/`組み立て、Node標準テスト**27件**がすべて成功した。追加した回帰検査は、User Action・Route ChangeをDebugSessionへ統合すること、ページとDevToolsで異なる`performance.now()`値でもISO timestamp順に整列すること、AI Exportが指定順で`Current State`まで出力すること、ISO timestamp近接時だけ`possibly related`を表示することを含む。

@@ -45,6 +45,23 @@
       <pre id="action-preview">No tracked action yet.</pre>
     </section>
 
+    <h2>User Action / Route Change test actions</h2>
+    <section class="card">
+      <p>Debug Recording開始後に、inputのdebounce、password値の非取得、form submit、標準History APIによるSPA遷移を確認できます。</p>
+      <form id="customer-form">
+        <label>Customer ID <input id="customer-id" name="customerId" type="text" autocomplete="off" placeholder="123" /></label>
+        <label>Password <input id="customer-password" name="password" type="password" autocomplete="new-password" value="not-exported" /></label>
+        <button id="customer-detail" data-testid="submit-button" type="submit">詳細</button>
+      </form>
+      <p>
+        <button id="route-push" type="button">history.pushState</button>
+        <button id="route-replace" type="button">history.replaceState</button>
+        <button id="debug-console-warn" type="button">console.warn</button>
+        <button id="debug-journey" data-testid="custom-id" type="button">Action → State → Network → Error</button>
+      </p>
+      <pre id="interaction-preview">No interaction yet.</pre>
+    </section>
+
     <h2>Debug Recording test actions</h2>
     <section class="card">
       <p>DevToolsで <code>Debug / Timeline</code> の <strong>Start Recording</strong> を押してから、Network / Errors画面で以下を確認してください。</p>
@@ -103,6 +120,36 @@
       document.querySelector('#action-clear').addEventListener('click', () => {
         sessionStorage.clear();
         reportAction('clear: sessionStorage');
+      });
+
+      const reportInteraction = (message) => { document.querySelector('#interaction-preview').textContent = message; };
+      document.querySelector('#customer-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        const customerId = document.querySelector('#customer-id').value || '123';
+        localStorage.setItem('selectedCustomerId', customerId);
+        history.pushState({ customerId }, '', `/customers/${encodeURIComponent(customerId)}`);
+        reportInteraction(`submitted customer ${customerId} and navigated to ${location.pathname}`);
+      });
+      document.querySelector('#route-push').addEventListener('click', () => {
+        history.pushState({ from: 'push' }, '', `/customers?source=push-${Date.now()}`);
+        reportInteraction(`pushState: ${location.pathname}${location.search}`);
+      });
+      document.querySelector('#route-replace').addEventListener('click', () => {
+        history.replaceState({ from: 'replace' }, '', `/customers?source=replace-${Date.now()}`);
+        reportInteraction(`replaceState: ${location.pathname}${location.search}`);
+      });
+      document.querySelector('#debug-console-warn').addEventListener('click', () => {
+        console.warn('Intentional console.warn from demo', { customerId: document.querySelector('#customer-id').value || '123' });
+        reportInteraction('console.warn recorded');
+      });
+      document.querySelector('#debug-journey').addEventListener('click', async () => {
+        const customerId = document.querySelector('#customer-id').value || '123';
+        localStorage.setItem('selectedCustomerId', customerId);
+        history.pushState({ customerId }, '', `/customers/${encodeURIComponent(customerId)}`);
+        const response = await fetch('/api/debug-context/fail');
+        const error = new TypeError(`Customer detail failed: ${response.status}`);
+        console.error(error, { customerId });
+        reportInteraction(`journey: selected ${customerId}, status ${response.status}`);
       });
 
       const reportDebug = (message) => { document.querySelector('#debug-preview').textContent = message; };

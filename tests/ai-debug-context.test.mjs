@@ -153,8 +153,9 @@ test('SnapshotServiceはページ・環境・Storage・Cookie・メタデータ�
     getFrameworkState: async (kind) => ({ ok: true, data: { detected: kind === 'pinia', message: 'bridge', data: kind === 'pinia' ? { selectedCustomerId: 123 } : undefined } }),
   };
   const service = new SnapshotService(evaluator, async () => ({ ok: true, data: [{ name: 'sid', value: 'secret', domain: 'example.test', path: '/', expires: 'Session', secure: true, httpOnly: true, sameSite: 'lax' }] }));
-  const result = await service.capture();
+  const result = await service.capture('before customer select');
   assert.equal(result.ok, true);
+  assert.equal(result.data.label, 'before customer select');
   assert.equal(result.data.page.title, 'Customer Detail');
   assert.equal(result.data.environment.viewport.width, 1920);
   assert.equal(result.data.localStorage[0].key, 'localStorage-key');
@@ -174,18 +175,74 @@ test('Snapshot diffとAI向けMarkdown / JSONは差分と優先情報を構造�
     pinia: { detected: true, message: 'bridge', data: { selectedCustomer: { id: 100 } } },
     tanstackQuery: { detected: false, message: 'Not detected' },
   };
-  const before = { ...base, id: 'before', timestamp: '2026-08-27T10:21:00.000Z', localStorage: [{ key: 'selectedCustomerId', value: '100', isJson: false }] };
-  const after = { ...base, id: 'after', timestamp: '2026-08-27T10:21:02.000Z', localStorage: [{ key: 'selectedCustomerId', value: '123', isJson: false }], pinia: { detected: true, message: 'bridge', data: { selectedCustomer: { id: 123 } } } };
+  const before = { ...base, id: 'before', label: 'before customer select', timestamp: '2026-08-27T10:21:00.000Z', localStorage: [{ key: 'selectedCustomerId', value: '100', isJson: false }] };
+  const after = { ...base, id: 'after', label: 'after error', timestamp: '2026-08-27T10:21:02.000Z', localStorage: [{ key: 'selectedCustomerId', value: '123', isJson: false }], pinia: { detected: true, message: 'bridge', data: { selectedCustomer: { id: 123 } } } };
   const diff = diffSnapshots(before, after);
   assert.ok(diff.entries.some((entry) => entry.path === 'localStorage.selectedCustomerId' && entry.kind === 'changed'));
   assert.ok(diff.entries.some((entry) => entry.path === 'pinia.selectedCustomer.id' && entry.kind === 'changed'));
-  const context = createAiDebugContext({ before, after, diff, network: [{ id: 'network-1', timestamp: '2026-08-27T10:21:01.244Z', performanceMs: 2, method: 'GET', url: 'https://example.test/api/contracts/123', status: 500, statusText: 'Internal Server Error', durationMs: 61, requestHeaders: [], requestBody: { available: false, reason: 'Unavailable' }, responseHeaders: [], responseBody: { available: true, text: '{"code":"INTERNAL_ERROR"}' } }], errors: [{ id: 'error-1', timestamp: '2026-08-27T10:21:01.315Z', performanceMs: 3, kind: 'javascript-error', message: 'TypeError', stack: ['CustomerDetail.vue:142'], duplicateCount: 1 }], storageChanges: [{ id: 1, timestamp: '2026-08-27T10:21:01.120Z', performanceMs: 1, storageArea: 'localStorage', operation: 'setItem', key: 'selectedCustomerId', oldValue: '100', newValue: '123', stack: ['CustomerDetail.vue:142'], outcome: 'changed' }], timeline: [], session: { active: false, eventCount: 3, networkCount: 1, errorCount: 1 } });
+  const context = createAiDebugContext({ before, after, diff, network: [{ id: 'network-1', timestamp: '2026-08-27T10:21:01.244Z', performanceMs: 2, method: 'GET', url: 'https://example.test/api/contracts/123', status: 500, statusText: 'Internal Server Error', durationMs: 61, requestHeaders: [], requestBody: { available: false, reason: 'Unavailable' }, responseHeaders: [], responseBody: { available: true, text: '{"code":"INTERNAL_ERROR"}' } }], errors: [{ id: 'error-1', timestamp: '2026-08-27T10:21:01.315Z', performanceMs: 3, kind: 'javascript-error', message: 'TypeError', stack: ['CustomerDetail.vue:142'], duplicateCount: 1 }], storageChanges: [{ id: 1, timestamp: '2026-08-27T10:21:01.120Z', performanceMs: 1, storageArea: 'localStorage', operation: 'setItem', key: 'selectedCustomerId', oldValue: '100', newValue: '123', stack: ['CustomerDetail.vue:142'], outcome: 'changed' }], timeline: [
+    { id: 'action-1', timestamp: '2026-08-27T10:21:01.100Z', performanceMs: 10000, kind: 'user-action', actionType: 'click', summary: 'CLICK button#customer-detail', target: { tagName: 'BUTTON', selector: 'button#customer-detail', text: '詳細' } },
+    { id: 'route-1', timestamp: '2026-08-27T10:21:01.150Z', performanceMs: 0.8, kind: 'route-change', routeType: 'pushState', from: 'https://example.test/customers', to: 'https://example.test/customers/123', summary: 'pushState route' },
+  ], userActions: [{ id: 'action-1', timestamp: '2026-08-27T10:21:01.100Z', performanceMs: 10000, kind: 'user-action', actionType: 'click', summary: 'CLICK button#customer-detail', target: { tagName: 'BUTTON', selector: 'button#customer-detail', text: '詳細' } }], routeChanges: [{ id: 'route-1', timestamp: '2026-08-27T10:21:01.150Z', performanceMs: 0.8, kind: 'route-change', routeType: 'pushState', from: 'https://example.test/customers', to: 'https://example.test/customers/123', summary: 'pushState route' }], selectedElements: [{ id: 'selected-1', timestamp: '2026-08-27T10:21:01.100Z', summary: { tagName: 'BUTTON', selector: 'button#customer-detail', text: '詳細' }, textContent: '詳細', attributes: { id: 'customer-detail' }, dataset: {}, disabled: false, hidden: false, aria: {}, boundingClientRect: { x: 1, y: 2, width: 3, height: 4, top: 2, right: 4, bottom: 6, left: 1 }, computedStyle: { display: 'block' } }], reproductionNotes: { expectedResult: '契約情報画面へ遷移する', actualResult: '不正な遷移エラーになる', reproductionSteps: '1. 顧客検索\n2. 詳細を押す', additionalNotes: '再試行すると成功する' }, session: { active: false, eventCount: 5, networkCount: 1, errorCount: 1, userActionCount: 1, routeChangeCount: 1 } });
   const markdown = formatAiContextMarkdown(context);
   assert.match(markdown, /# Web Debug Context/);
+  assert.match(markdown, /## Reproduction Notes/);
+  assert.match(markdown, /Expected Result/);
+  assert.match(markdown, /契約情報画面へ遷移する/);
+  assert.match(markdown, /User Actions/);
+  assert.match(markdown, /button#customer-detail/);
+  assert.match(markdown, /Route Changes/);
   assert.match(markdown, /Network Errors/);
   assert.match(markdown, /500/);
   assert.match(markdown, /selectedCustomerId/);
+  assert.match(markdown, /before customer select vs after error/);
+  assert.match(markdown, /Selected DOM Snapshots/);
+  assert.match(markdown, /## Current State/);
   assert.match(markdown, /Review this exported context for secrets/);
+  assert.ok(markdown.indexOf('## Reproduction Notes') < markdown.indexOf('## JavaScript and Console Events'));
+  assert.ok(markdown.indexOf('## JavaScript and Console Events') < markdown.indexOf('## Network Errors'));
+  assert.ok(markdown.indexOf('## Network Errors') < markdown.indexOf('## User Actions'));
+  assert.ok(markdown.indexOf('## User Actions') < markdown.indexOf('## Route Changes'));
+  assert.ok(markdown.indexOf('## Route Changes') < markdown.indexOf('## Storage Changes'));
+  assert.ok(markdown.indexOf('## Storage Changes') < markdown.indexOf('## Unified Timeline'));
+  assert.ok(markdown.indexOf('## Unified Timeline') < markdown.indexOf('## Snapshot Diff'));
+  assert.ok(markdown.indexOf('## Snapshot Diff') < markdown.indexOf('## Current State'));
+  assert.ok(markdown.indexOf('possibly related to click button#customer-detail') >= 0);
   const json = formatAiContextJson(context);
   assert.equal(JSON.parse(json).snapshots.diff.entries.length, diff.entries.length);
+});
+
+
+test('DebugSessionはUser ActionとRoute Changeを他のDebugイベントと同一Timelineへ統合する', async () => {
+  const { DebugSession } = await moduleAt('build/panel/debug-session.js');
+  const api = installNetworkApi();
+  const originalWindow = globalThis.window;
+  globalThis.window = { setInterval: () => 1, clearInterval: () => {} };
+  const storageTracker = { clear: async () => ({ ok: true }), start: async () => ({ ok: true }), stop: async () => ({ ok: true }), getSnapshot: async () => ({ ok: true, data: { events: [] } }) };
+  const errorCollector = { clear: async () => ({ ok: true }), start: async () => ({ ok: true }), stop: async () => ({ ok: true }), getErrors: async () => ({ ok: true, data: [] }) };
+  const interactions = {
+    clear: async () => ({ ok: true }),
+    start: async () => ({ ok: true }),
+    stop: async () => ({ ok: true }),
+    getSnapshot: async () => ({ ok: true, data: {
+      actions: [{ id: 'action-1', timestamp: '2026-08-27T10:21:01.120Z', performanceMs: 10000, kind: 'user-action', actionType: 'click', summary: 'CLICK button#custom-id', target: { tagName: 'BUTTON', selector: 'button#custom-id', text: '詳細' } }],
+      routes: [{ id: 'route-1', timestamp: '2026-08-27T10:21:01.150Z', performanceMs: 1, kind: 'route-change', routeType: 'pushState', from: 'https://example.test/customers', to: 'https://example.test/customers/123', summary: 'pushState route' }],
+    } }),
+  };
+  try {
+    const session = new DebugSession(storageTracker, errorCollector, () => 2, interactions);
+    await session.start();
+    await session.refresh();
+    const timeline = session.getTimeline();
+    assert.deepEqual(timeline.map((event) => event.kind), ['user-action', 'route-change']);
+    assert.equal(timeline[0].timestamp, '2026-08-27T10:21:01.120Z', 'performance.nowの基準差ではなくISO timestampで時系列化する');
+    assert.equal(session.getStatus().userActionCount, 1);
+    assert.equal(session.getStatus().routeChangeCount, 1);
+    assert.equal((await session.getUserActions())[0].target.selector, 'button#custom-id');
+    assert.equal((await session.getRouteChanges())[0].to, 'https://example.test/customers/123');
+    await session.stop();
+  } finally {
+    globalThis.window = originalWindow;
+    api.restore();
+  }
 });

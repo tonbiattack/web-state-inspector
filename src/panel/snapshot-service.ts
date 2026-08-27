@@ -67,7 +67,7 @@ export function diffSnapshots(before: DebugSnapshot, after: DebugSnapshot): Snap
 export class SnapshotService {
   constructor(private readonly evaluator: PageEvaluator, private readonly readCookies: CookieReader) {}
 
-  async capture(): Promise<{ ok: boolean; data?: DebugSnapshot; error?: string }> {
+  async capture(label = 'Snapshot'): Promise<{ ok: boolean; data?: DebugSnapshot; error?: string }> {
     const pageDetails = await this.evaluator.getPageDetails();
     if (!pageDetails.ok || !pageDetails.data) return { ok: false, error: pageDetails.error ?? 'Page details could not be read.' };
     const pageUrl = pageDetails.data.page.url;
@@ -86,6 +86,7 @@ export class SnapshotService {
       ok: true,
       data: {
         id: `snapshot-${crypto.randomUUID()}`,
+        label: label.trim() || 'Snapshot',
         timestamp: new Date().toISOString(),
         page: pageDetails.data.page,
         environment: pageDetails.data.environment,

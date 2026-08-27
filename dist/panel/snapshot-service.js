@@ -63,7 +63,7 @@ export class SnapshotService {
         this.evaluator = evaluator;
         this.readCookies = readCookies;
     }
-    async capture() {
+    async capture(label = 'Snapshot') {
         const pageDetails = await this.evaluator.getPageDetails();
         if (!pageDetails.ok || !pageDetails.data)
             return { ok: false, error: pageDetails.error ?? 'Page details could not be read.' };
@@ -83,6 +83,7 @@ export class SnapshotService {
             ok: true,
             data: {
                 id: `snapshot-${crypto.randomUUID()}`,
+                label: label.trim() || 'Snapshot',
                 timestamp: new Date().toISOString(),
                 page: pageDetails.data.page,
                 environment: pageDetails.data.environment,

@@ -2,8 +2,11 @@ import { formatAiContextJson, formatAiContextMarkdown, createAiDebugContext } fr
 import { ChangeTracker } from './change-tracker.js';
 import { DebugSession } from './debug-session.js';
 import { ErrorCollector } from './error-collector.js';
+import { InteractionTracker } from './interaction-tracker.js';
 import { matchesNetworkFilter } from './network-collector.js';
 import { PageEvaluator } from './page-evaluator.js';
+import { emptyReproductionNotes, normalizeReproductionNotes } from './reproduction-notes.js';
+import { SelectedElementService } from './selected-element-service.js';
 import { diffSnapshots, SnapshotService } from './snapshot-service.js';
 import { isStorageList, StoragePollingController } from './storage-polling.js';
 import type {
@@ -14,6 +17,8 @@ import type {
   DiffEntry,
   NetworkEntry,
   NetworkFilter,
+  ReproductionNotes,
+  SelectedElementSnapshot,
   TimelineEvent,
   CookieEntry,
   CookieResponse,
@@ -27,8 +32,10 @@ import type {
 const evaluator = new PageEvaluator();
 const changeTracker = new ChangeTracker(evaluator);
 const errorCollector = new ErrorCollector(evaluator);
-const debugSession = new DebugSession(changeTracker, errorCollector);
+const interactionTracker = new InteractionTracker(evaluator);
+const debugSession = new DebugSession(changeTracker, errorCollector, () => performance.now(), interactionTracker);
 const snapshotService = new SnapshotService(evaluator, requestCookies);
+const selectedElementService = new SelectedElementService(evaluator);
 let trackingPollId: number | undefined;
 let debugPollId: number | undefined;
 let networkFilter: NetworkFilter = 'all';
@@ -36,6 +43,10 @@ let beforeSnapshot: DebugSnapshot | undefined;
 let afterSnapshot: DebugSnapshot | undefined;
 let currentDiff: DiffEntry[] | undefined;
 let exportFormat: 'markdown' | 'json' = 'markdown';
+let beforeSnapshotLabel = 'Snapshot 1';
+let afterSnapshotLabel = 'Snapshot 2';
+let selectedElementSnapshots: SelectedElementSnapshot[] = [];
+let reproductionNotes: ReproductionNotes = emptyReproductionNotes();
 let changeTrackingActive = false;
 const root = document.querySelector<HTMLDivElement>('#app');
 
@@ -594,17 +605,23 @@ function renderDebugControls(): HTMLElement {
   stop.addEventListener('click', () => { void stopDebugRecording(); });
   const clearButton = element('button', 'action-button', 'Clear');
   clearButton.type = 'button';
-  clearButton.disabled = !status.active && status.eventCount === 0 && status.networkCount === 0 && status.errorCount === 0;
+  clearButton.disabled = !status.active && status.eventCount === 0 && status.networkCount === 0 && status.errorCount === 0 && status.userActionCount === 0 && status.routeChangeCount === 0;
   clearButton.addEventListener('click', () => { void clearDebugRecording(); });
-  const indicator = element('span', `status${status.active ? ' detected' : ''}`, status.active ? `Recording · ${status.eventCount} events` : `Stopped · ${status.eventCount} events`);
+  const indicator = element('span', `status${status.active ? ' detected' : ''}`, status.active ? `Recording · ${status.eventCount} events · ${status.userActionCount} actions` : `Stopped · ${status.eventCount} events`);
   controls.append(start, stop, clearButton, indicator);
   return controls;
 }
 
+function timelineDetails(event: TimelineEvent): string {
+  if (event.kind === 'user-action') return [event.summary, event.target.text ? `text: ${event.target.text}` : '', event.target.value !== undefined ? `value: ${event.target.value}` : '', event.target.ariaLabel ? `aria-label: ${event.target.ariaLabel}` : ''].filter(Boolean).join('\n');
+  if (event.kind === 'route-change') return `${event.routeType}\nfrom: ${event.from}\nto: ${event.to}`;
+  return event.summary;
+}
+
 function renderDebugTimeline(): HTMLElement {
   const section = element('section');
-  section.append(renderDebugControls(), element('p', 'summary', 'Storage変更、Networkの開始・完了、JavaScript Error、console.error、Promise rejectionを時刻順に表示します。'));
-  const events = debugSession.getTimeline().filter((event) => matchesQuery([event.kind, event.summary])).slice().reverse();
+  section.append(renderDebugControls(), element('p', 'summary', 'User Action、Route Change、Storage変更、Networkの開始・完了、JavaScript Error、console.error / warn、Promise rejectionを同一時刻基準で表示します。イベントの近接は因果関係を保証しません。'));
+  const events = debugSession.getTimeline().filter((event) => matchesQuery([event.kind, event.summary, timelineDetails(event)])).slice().reverse();
   if (events.length === 0) {
     section.append(element('div', 'empty', 'Start Recordingを押してから対象アプリを操作してください。'));
     return section;
@@ -612,7 +629,7 @@ function renderDebugTimeline(): HTMLElement {
   const { table, body } = createTable(['When', 'Type', 'Summary']);
   for (const event of events) {
     const row = element('tr');
-    row.append(element('td', undefined, formatTime(event.timestamp)), element('td', 'key-cell', event.kind), element('td', 'value-cell', event.summary));
+    row.append(element('td', undefined, formatTime(event.timestamp)), element('td', 'key-cell', event.kind), element('td', 'value-cell', timelineDetails(event)));
     body.append(row);
   }
   section.append(table);
@@ -665,7 +682,7 @@ function renderErrors(): HTMLElement {
   const section = element('section');
   section.append(renderDebugControls());
   const errors = debugSession.getErrors().filter((error) => matchesQuery([error.kind, error.message, error.sourceUrl ?? '', ...error.stack])).slice().reverse();
-  section.append(element('p', 'summary', `${errors.length} 件。error、unhandledrejection、console.errorを重複を抑えて記録します。`));
+  section.append(element('p', 'summary', `${errors.length} 件。error、unhandledrejection、console.error、console.warnを重複を抑えて記録します。`));
   if (errors.length === 0) {
     section.append(element('div', 'empty', 'JavaScript Errorは記録されていません。'));
     return section;
@@ -686,13 +703,48 @@ function renderErrors(): HTMLElement {
   return section;
 }
 
-function renderSnapshotSummary(label: string, snapshot?: DebugSnapshot): HTMLElement {
-  if (!snapshot) return element('div', 'empty', `${label} Snapshotは未取得です。`);
-  return element('div', 'snapshot-summary', `${label}: ${snapshot.timestamp} · ${snapshot.page.title || 'Untitled'} · ${snapshot.page.url}`);
+function renderSnapshotSummary(slot: string, snapshot?: DebugSnapshot): HTMLElement {
+  if (!snapshot) return element('div', 'empty', `${slot} Snapshotは未取得です。`);
+  return element('div', 'snapshot-summary', `${slot}: ${snapshot.label} · ${snapshot.timestamp} · ${snapshot.page.title || 'Untitled'} · ${snapshot.page.url}`);
+}
+
+function snapshotLabelInput(slot: 'before' | 'after'): HTMLInputElement {
+  const input = element('input', 'compact-input') as HTMLInputElement;
+  input.type = 'text';
+  input.maxLength = 80;
+  input.value = slot === 'before' ? beforeSnapshotLabel : afterSnapshotLabel;
+  input.placeholder = slot === 'before' ? 'Snapshot 1' : 'Snapshot 2';
+  input.setAttribute('aria-label', `${slot} snapshot label`);
+  input.addEventListener('input', () => {
+    if (slot === 'before') beforeSnapshotLabel = input.value;
+    else afterSnapshotLabel = input.value;
+  });
+  return input;
+}
+
+function renderSelectedElementSnapshots(): HTMLElement {
+  const section = element('section', 'selected-element-section');
+  section.append(element('h3', undefined, 'Selected DOM Snapshot'));
+  if (selectedElementSnapshots.length === 0) {
+    section.append(element('p', 'summary', 'Elementsパネルで選択した要素だけを取得します。ページ全体のDOMは取得しません。'));
+    return section;
+  }
+  for (const snapshot of selectedElementSnapshots.slice().reverse()) {
+    const details = element('details') as HTMLDetailsElement;
+    details.append(element('summary', undefined, `${snapshot.summary.selector} · ${formatTime(snapshot.timestamp)}`), jsonView(snapshot, false));
+    section.append(details);
+  }
+  return section;
 }
 
 function renderSnapshots(): HTMLElement {
   const section = element('section');
+  const labels = element('div', 'snapshot-label-controls');
+  const beforeLabel = element('label', 'field-label', 'Before label');
+  beforeLabel.append(snapshotLabelInput('before'));
+  const afterLabel = element('label', 'field-label', 'After label');
+  afterLabel.append(snapshotLabelInput('after'));
+  labels.append(beforeLabel, afterLabel);
   const controls = element('div', 'timeline-controls');
   const before = element('button', 'action-button', 'Capture Before');
   before.type = 'button';
@@ -700,17 +752,20 @@ function renderSnapshots(): HTMLElement {
   const after = element('button', 'action-button', 'Capture After');
   after.type = 'button';
   after.addEventListener('click', () => { void captureSnapshot('after'); });
+  const selected = element('button', 'action-button', 'Capture Selected Element');
+  selected.type = 'button';
+  selected.addEventListener('click', () => { void captureSelectedElement(); });
   const diff = element('button', 'action-button', 'Show Diff');
   diff.type = 'button';
   diff.disabled = !beforeSnapshot || !afterSnapshot;
   diff.addEventListener('click', () => { if (beforeSnapshot && afterSnapshot) { currentDiff = diffSnapshots(beforeSnapshot, afterSnapshot).entries; renderCurrentData(); } });
-  controls.append(before, after, diff);
-  section.append(controls, renderSnapshotSummary('Before', beforeSnapshot), renderSnapshotSummary('After', afterSnapshot));
+  controls.append(before, after, selected, diff);
+  section.append(labels, controls, renderSnapshotSummary('Before', beforeSnapshot), renderSnapshotSummary('After', afterSnapshot), renderSelectedElementSnapshots());
   if (!currentDiff) {
     section.append(element('p', 'summary', 'Capture Before後に対象アプリを操作し、Capture Afterを押してからShow Diffを選択してください。'));
     return section;
   }
-  section.append(element('p', 'summary', `${currentDiff.length} 件の差分。Storage、明示的診断ブリッジのFramework State、IndexedDB metadata、Cache Storage metadataを比較します。`));
+  section.append(element('p', 'summary', `${beforeSnapshot?.label ?? 'Before'} vs ${afterSnapshot?.label ?? 'After'}: ${currentDiff.length} 件の差分。Storage、明示的診断ブリッジのFramework State、IndexedDB metadata、Cache Storage metadataを比較します。`));
   if (currentDiff.length === 0) {
     section.append(element('div', 'empty', 'Before / Afterの差分はありません。'));
     return section;
@@ -729,7 +784,25 @@ function renderAiExport(): HTMLElement {
   const section = element('section');
   const status = debugSession.getStatus();
   section.append(element('div', 'notice warning', 'Copy for AIは外部送信を行いません。貼り付け前にCookie、Authorization、token、個人情報、顧客情報などの機密情報を必ず確認してください。'));
-  section.append(element('p', 'summary', `Events: ${status.eventCount} · Errors: ${status.errorCount} · Network: ${status.networkCount} · Snapshots: ${Number(Boolean(beforeSnapshot)) + Number(Boolean(afterSnapshot))}`));
+  section.append(element('p', 'summary', `Events: ${status.eventCount} · Actions: ${status.userActionCount} · Routes: ${status.routeChangeCount} · Errors: ${status.errorCount} · Network: ${status.networkCount} · Snapshots: ${Number(Boolean(beforeSnapshot)) + Number(Boolean(afterSnapshot))} · Selected DOM: ${selectedElementSnapshots.length}`));
+  const notesSection = element('div', 'reproduction-notes');
+  notesSection.append(element('h3', undefined, 'Reproduction Notes'));
+  const noteFields: Array<[keyof ReproductionNotes, string, string]> = [
+    ['expectedResult', 'Expected Result', '期待する結果を入力'],
+    ['actualResult', 'Actual Result', '実際の結果を入力'],
+    ['reproductionSteps', 'Reproduction Steps', '1. 操作\n2. 操作\n3. 操作'],
+    ['additionalNotes', 'Additional Notes', '再現条件、頻度、補足を入力'],
+  ];
+  for (const [key, labelText, placeholder] of noteFields) {
+    const labelNode = element('label', 'field-label', labelText);
+    const input = element('textarea', 'notes-input') as HTMLTextAreaElement;
+    input.value = reproductionNotes[key];
+    input.placeholder = placeholder;
+    input.rows = key === 'reproductionSteps' ? 4 : 2;
+    input.addEventListener('input', () => { reproductionNotes = { ...reproductionNotes, [key]: input.value }; });
+    labelNode.append(input);
+    notesSection.append(labelNode);
+  }
   const formatControls = element('div', 'format-controls');
   for (const [value, label] of [['markdown', 'Markdown'], ['json', 'JSON']] as Array<['markdown' | 'json', string]>) {
     const labelNode = element('label', 'toggle-label');
@@ -745,7 +818,7 @@ function renderAiExport(): HTMLElement {
   const copy = element('button', 'action-button', 'Copy for AI');
   copy.type = 'button';
   copy.addEventListener('click', () => { void copyForAi(copy); });
-  section.append(formatControls, copy, element('p', 'summary', '失敗したNetwork、JavaScript Error、Storage変更、Unified Timeline、利用可能なSnapshot Diffを優先して出力します。'));
+  section.append(notesSection, formatControls, copy, element('p', 'summary', '再現メモ、JavaScript / Console Error、失敗したNetwork、User Action、Route Change、Storage変更、Unified Timeline、Snapshot Diffの順に優先して出力します。'));
   return section;
 }
 
@@ -753,7 +826,7 @@ async function buildAiContext(): Promise<AiDebugContext> {
   await debugSession.refresh();
   let selectedSnapshot = afterSnapshot ?? beforeSnapshot;
   if (!selectedSnapshot) {
-    const captured = await snapshotService.capture();
+    const captured = await snapshotService.capture('Current state');
     if (captured.ok && captured.data) {
       afterSnapshot = captured.data;
       selectedSnapshot = captured.data;
@@ -769,6 +842,10 @@ async function buildAiContext(): Promise<AiDebugContext> {
     storageChanges: await debugSession.getStorageChanges(),
     timeline: debugSession.getTimeline(),
     session: debugSession.getStatus(),
+    userActions: await debugSession.getUserActions(),
+    routeChanges: await debugSession.getRouteChanges(),
+    selectedElements: selectedElementSnapshots,
+    reproductionNotes: normalizeReproductionNotes(reproductionNotes),
   });
 }
 
@@ -782,7 +859,8 @@ async function copyForAi(button: HTMLButtonElement): Promise<void> {
 
 async function captureSnapshot(target: 'before' | 'after'): Promise<void> {
   setBody(renderUnavailable(`${target === 'before' ? 'Before' : 'After'} Snapshotを取得しています。`));
-  const result = await snapshotService.capture();
+  const label = target === 'before' ? beforeSnapshotLabel : afterSnapshotLabel;
+  const result = await snapshotService.capture(label || (target === 'before' ? 'Snapshot 1' : 'Snapshot 2'));
   if (!result.ok || !result.data) {
     setBody(renderUnavailable(result.error ?? 'Snapshotを取得できません。', true));
     return;
@@ -790,6 +868,22 @@ async function captureSnapshot(target: 'before' | 'after'): Promise<void> {
   if (target === 'before') beforeSnapshot = result.data;
   else afterSnapshot = result.data;
   currentDiff = undefined;
+  renderCurrentData();
+}
+
+async function captureSelectedElement(): Promise<void> {
+  setBody(renderUnavailable('Elementsパネルで選択された要素を取得しています。'));
+  const result = await selectedElementService.captureSelected();
+  if (!result.ok) {
+    setBody(renderUnavailable(result.error ?? '選択要素を取得できません。', true));
+    return;
+  }
+  if (!result.data) {
+    setBody(renderUnavailable('Elementsパネルで要素を選択してから、もう一度実行してください。'));
+    return;
+  }
+  selectedElementSnapshots.push(result.data);
+  if (selectedElementSnapshots.length > 3) selectedElementSnapshots.splice(0, selectedElementSnapshots.length - 3);
   renderCurrentData();
 }
 
@@ -802,13 +896,13 @@ function startDebugPolling(): void {
   stopDebugPolling();
   debugPollId = window.setInterval(() => {
     void debugSession.refresh().then(() => {
-      if (['debug-timeline', 'network', 'errors', 'ai-export'].includes(state.selected)) renderCurrentData();
+      if (['debug-timeline', 'network', 'errors', 'snapshots', 'ai-export'].includes(state.selected)) renderCurrentData();
     });
   }, 500);
 }
 
 async function startDebugRecording(): Promise<void> {
-  setBody(renderUnavailable('Storage、Network、Errorの記録を開始しています。'));
+  setBody(renderUnavailable('User Action、Route Change、Storage、Network、Errorの記録を開始しています。'));
   const result = await debugSession.start();
   if (!result.ok) {
     setBody(renderUnavailable(result.error ?? 'Debug Recordingを開始できません。', true));

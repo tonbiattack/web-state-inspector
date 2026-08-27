@@ -128,7 +128,7 @@ export interface CookieResponse {
   error?: string;
 }
 
-export type DebugEventKind = 'storage' | 'network-request' | 'network-response' | 'javascript-error' | 'console-error' | 'promise-rejection';
+export type DebugEventKind = 'storage' | 'network-request' | 'network-response' | 'javascript-error' | 'console-error' | 'console-warn' | 'promise-rejection' | 'user-action' | 'route-change';
 
 export interface TimelineEventBase {
   id: string;
@@ -163,7 +163,7 @@ export interface DebugError {
   id: string;
   timestamp: string;
   performanceMs: number;
-  kind: 'javascript-error' | 'console-error' | 'promise-rejection';
+  kind: 'javascript-error' | 'console-error' | 'console-warn' | 'promise-rejection';
   message: string;
   stack: string[];
   sourceUrl?: string;
@@ -173,11 +173,38 @@ export interface DebugError {
 }
 
 export interface ErrorTimelineEvent extends TimelineEventBase {
-  kind: 'javascript-error' | 'console-error' | 'promise-rejection';
+  kind: 'javascript-error' | 'console-error' | 'console-warn' | 'promise-rejection';
   error: DebugError;
 }
 
-export type TimelineEvent = StorageTimelineEvent | NetworkRequestEvent | NetworkResponseEvent | ErrorTimelineEvent;
+export interface ElementSummary {
+  tagName: string;
+  selector: string;
+  id?: string;
+  className?: string;
+  name?: string;
+  type?: string;
+  text?: string;
+  ariaLabel?: string;
+  dataTestId?: string;
+  value?: string;
+}
+
+export interface UserActionEvent extends TimelineEventBase {
+  kind: 'user-action';
+  actionType: 'click' | 'input' | 'change' | 'submit' | 'focus' | 'blur' | 'keydown';
+  target: ElementSummary;
+  key?: string;
+}
+
+export interface RouteChangeEvent extends TimelineEventBase {
+  kind: 'route-change';
+  routeType: 'pushState' | 'replaceState' | 'popstate' | 'hashchange';
+  from: string;
+  to: string;
+}
+
+export type TimelineEvent = StorageTimelineEvent | NetworkRequestEvent | NetworkResponseEvent | ErrorTimelineEvent | UserActionEvent | RouteChangeEvent;
 
 export interface HeaderEntry {
   name: string;
@@ -220,8 +247,30 @@ export interface SnapshotPageInfo extends PageInfo {
   title: string;
 }
 
+export interface SelectedElementSnapshot {
+  id: string;
+  timestamp: string;
+  summary: ElementSummary;
+  textContent: string;
+  attributes: Record<string, string>;
+  dataset: Record<string, string>;
+  disabled: boolean;
+  hidden: boolean;
+  aria: Record<string, string>;
+  boundingClientRect: { x: number; y: number; width: number; height: number; top: number; right: number; bottom: number; left: number };
+  computedStyle: Record<string, string>;
+}
+
+export interface ReproductionNotes {
+  expectedResult: string;
+  actualResult: string;
+  reproductionSteps: string;
+  additionalNotes: string;
+}
+
 export interface DebugSnapshot {
   id: string;
+  label: string;
   timestamp: string;
   page: SnapshotPageInfo;
   environment: PageEnvironment;
@@ -253,6 +302,8 @@ export interface DebugSessionStatus {
   eventCount: number;
   networkCount: number;
   errorCount: number;
+  userActionCount: number;
+  routeChangeCount: number;
 }
 
 export interface AiDebugContext {
@@ -265,4 +316,16 @@ export interface AiDebugContext {
   errors: DebugError[];
   storageChanges: StorageChangeEvent[];
   timeline: TimelineEvent[];
+  userActions: UserActionEvent[];
+  routeChanges: RouteChangeEvent[];
+  selectedElements: SelectedElementSnapshot[];
+  reproductionNotes: ReproductionNotes;
+}
+
+export interface InteractionTrackingSnapshot {
+  active: boolean;
+  actionCount: number;
+  routeCount: number;
+  actions: UserActionEvent[];
+  routes: RouteChangeEvent[];
 }

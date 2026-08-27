@@ -17,7 +17,7 @@ async function loadCollector() {
 function createEnvironment() {
   const listeners = new Map();
   const originalCalls = [];
-  const console = { error: (...args) => { originalCalls.push(args); } };
+  const console = { error: (...args) => { originalCalls.push(['error', args]); }, warn: (...args) => { originalCalls.push(['warn', args]); } };
   const window = {
     addEventListener(type, listener) { listeners.set(type, listener); },
     removeEventListener(type, listener) { listeners.delete(type); },
@@ -33,31 +33,36 @@ function createEnvironment() {
   return { listeners, console, originalCalls, evaluator };
 }
 
-test('ErrorCollectorはconsole.error、window error、unhandledrejectionを収集し、重複を集約してStop時に復元する', async () => {
+test('ErrorCollectorはconsole.error / warn、window error、unhandledrejectionを収集し、重複を集約してStop時に復元する', async () => {
   const { ErrorCollector } = await loadCollector();
   const environment = createEnvironment();
   const originalConsoleError = environment.console.error;
+  const originalConsoleWarn = environment.console.warn;
   const collector = new ErrorCollector(environment.evaluator);
 
   const started = await collector.start();
   assert.equal(started.ok, true);
   environment.console.error('Duplicate error');
   environment.console.error('Duplicate error');
+  environment.console.warn('Duplicate error', { nested: { value: 123 } });
   environment.listeners.get('error')(new TestErrorEvent('error', { message: 'ReferenceError: missing', error: new Error('ReferenceError: missing'), filename: 'https://example.test/app.js', lineno: 10, colno: 4 }));
   environment.listeners.get('unhandledrejection')({ reason: new TypeError('Promise failed') });
 
   const errors = await collector.getErrors();
   assert.equal(errors.ok, true);
-  assert.equal(errors.data.length, 3);
+  assert.equal(errors.data.length, 4);
   assert.equal(errors.data[0].kind, 'console-error');
   assert.equal(errors.data[0].duplicateCount, 2);
-  assert.equal(errors.data[1].sourceUrl, 'https://example.test/app.js');
-  assert.equal(errors.data[1].line, 10);
-  assert.equal(errors.data[2].kind, 'promise-rejection');
-  assert.ok(environment.originalCalls.length >= 2, 'console.error本来の動作を維持する');
+  assert.equal(errors.data[1].kind, 'console-warn');
+  assert.match(errors.data[1].message, /nested/);
+  assert.equal(errors.data[2].sourceUrl, 'https://example.test/app.js');
+  assert.equal(errors.data[2].line, 10);
+  assert.equal(errors.data[3].kind, 'promise-rejection');
+  assert.ok(environment.originalCalls.length >= 3, 'console.error / warn本来の動作を維持する');
 
   const stopped = await collector.stop();
   assert.equal(stopped.ok, true);
   assert.equal(environment.console.error, originalConsoleError, 'Stopでconsole.errorを元へ戻す');
+  assert.equal(environment.console.warn, originalConsoleWarn, 'Stopでconsole.warnを元へ戻す');
   assert.equal(environment.listeners.size, 0);
 });
