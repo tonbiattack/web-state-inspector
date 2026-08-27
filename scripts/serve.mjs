@@ -14,6 +14,24 @@ const contentTypes = {
 
 createServer(async (request, response) => {
   const requestPath = new URL(request.url ?? '/', `http://${request.headers.host}`).pathname;
+  if (requestPath === '/api/debug-context/ok') {
+    response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'X-Debug-Scenario': 'success' });
+    response.end(JSON.stringify({ customerId: 123, status: 'ok' }));
+    return;
+  }
+  if (requestPath === '/api/debug-context/fail') {
+    response.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8', 'X-Debug-Scenario': 'server-error' });
+    response.end(JSON.stringify({ code: 'INTERNAL_ERROR', message: 'Intentional demo failure' }));
+    return;
+  }
+  if (requestPath === '/api/debug-context/echo') {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = Buffer.concat(chunks).toString('utf8');
+    response.writeHead(201, { 'Content-Type': 'application/json; charset=utf-8', 'X-Debug-Scenario': 'xhr-post' });
+    response.end(JSON.stringify({ received: body || null, status: 'created' }));
+    return;
+  }
   const candidate = requestPath.endsWith('/') ? `${requestPath}index.html` : requestPath;
   const filePath = resolve(root, `.${normalize(candidate)}`);
   if (!filePath.startsWith(root)) {

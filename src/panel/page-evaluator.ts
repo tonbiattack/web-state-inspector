@@ -5,6 +5,8 @@ import type {
   IndexedDbSummary,
   InspectResult,
   PageInfo,
+  PageEnvironment,
+  SnapshotPageInfo,
   StorageEntry,
 } from '../shared/types.js';
 
@@ -94,6 +96,17 @@ export class PageEvaluator {
 
   getPageInfo(): Promise<InspectResult<PageInfo>> {
     return this.evaluate<PageInfo>(`(() => ({ url: location.href, origin: location.origin }))()`);
+  }
+
+  getPageDetails(): Promise<InspectResult<{ page: SnapshotPageInfo; environment: PageEnvironment }>> {
+    return this.evaluate(`(() => ({
+      page: { url: location.href, origin: location.origin, title: document.title },
+      environment: {
+        userAgent: navigator.userAgent,
+        viewport: { width: window.innerWidth, height: window.innerHeight, devicePixelRatio: window.devicePixelRatio },
+        readyState: document.readyState,
+      },
+    }))()`);
   }
 
   getStorage(kind: 'localStorage' | 'sessionStorage'): Promise<InspectResult<StorageEntry[]>> {

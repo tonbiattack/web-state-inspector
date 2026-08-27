@@ -39,7 +39,7 @@ test('Manifestのアイコン指定と配布物の各PNGサイズが一致する
 
 test('パネルUIは要求されたナビゲーション、検索、Refresh、JSONコピーを持つ', async () => {
   const source = await read('src/panel/main.ts');
-  for (const label of ['Local Storage', 'Session Storage', 'Cookies', 'IndexedDB', 'Cache Storage', 'Pinia', 'TanStack Query']) {
+  for (const label of ['Local Storage', 'Session Storage', 'Cookies', 'IndexedDB', 'Cache Storage', 'Timeline', 'Network', 'Errors', 'Snapshots', 'AI Export', 'Pinia', 'TanStack Query']) {
     assert.match(source, new RegExp(`label: '${label}'`));
   }
   assert.match(source, /'Refresh'/);
@@ -47,6 +47,12 @@ test('パネルUIは要求されたナビゲーション、検索、Refresh、JS
   assert.match(source, /navigator\.clipboard\.writeText/);
   assert.match(source, /JSON を表示/);
   assert.match(source, /experimental: true/);
+  assert.match(source, /Start Recording/);
+  assert.match(source, /Capture Before/);
+  assert.match(source, /Capture After/);
+  assert.match(source, /Show Diff/);
+  assert.match(source, /Copy for AI/);
+  assert.match(source, /Fetch\/XHR/);
   assert.doesNotMatch(source, /\.innerHTML\s*=/);
 });
 
@@ -59,6 +65,10 @@ test('動作確認ページは明示的なPiniaとTanStack Queryの診断ブリ�
   assert.match(sample, /window\.__WEB_STATE_INSPECTOR__\s*=\s*Object\.freeze/);
   assert.match(sample, /getPinia:/);
   assert.match(sample, /getTanStackQuery:/);
+  for (const id of ['debug-fetch-ok', 'debug-fetch-fail', 'debug-xhr-post', 'debug-console-error', 'debug-rejection']) assert.match(sample, new RegExp(`id="${id}"`));
+  assert.match(sample, /api\/debug-context\/fail/);
+  assert.match(sample, /console\.error\(error\)/);
+  assert.match(sample, /Promise\.reject\(/);
 });
 
 test('ブリッジなしのサンプルはフレームワーク状態を公開しない', async () => {

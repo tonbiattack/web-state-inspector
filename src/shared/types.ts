@@ -5,6 +5,11 @@ export type NavigationId =
   | 'indexeddb'
   | 'cache-storage'
   | 'change-timeline'
+  | 'debug-timeline'
+  | 'network'
+  | 'errors'
+  | 'snapshots'
+  | 'ai-export'
   | 'pinia'
   | 'tanstack-query';
 
@@ -121,4 +126,143 @@ export interface CookieResponse {
   ok: boolean;
   data?: CookieEntry[];
   error?: string;
+}
+
+export type DebugEventKind = 'storage' | 'network-request' | 'network-response' | 'javascript-error' | 'console-error' | 'promise-rejection';
+
+export interface TimelineEventBase {
+  id: string;
+  timestamp: string;
+  performanceMs: number;
+  kind: DebugEventKind;
+  summary: string;
+}
+
+export interface StorageTimelineEvent extends TimelineEventBase {
+  kind: 'storage';
+  storage: StorageChangeEvent;
+}
+
+export interface NetworkRequestEvent extends TimelineEventBase {
+  kind: 'network-request';
+  requestId: string;
+  method: string;
+  url: string;
+}
+
+export interface NetworkResponseEvent extends TimelineEventBase {
+  kind: 'network-response';
+  requestId: string;
+  method: string;
+  url: string;
+  status: number;
+  durationMs: number;
+}
+
+export interface DebugError {
+  id: string;
+  timestamp: string;
+  performanceMs: number;
+  kind: 'javascript-error' | 'console-error' | 'promise-rejection';
+  message: string;
+  stack: string[];
+  sourceUrl?: string;
+  line?: number;
+  column?: number;
+  duplicateCount: number;
+}
+
+export interface ErrorTimelineEvent extends TimelineEventBase {
+  kind: 'javascript-error' | 'console-error' | 'promise-rejection';
+  error: DebugError;
+}
+
+export type TimelineEvent = StorageTimelineEvent | NetworkRequestEvent | NetworkResponseEvent | ErrorTimelineEvent;
+
+export interface HeaderEntry {
+  name: string;
+  value: string;
+}
+
+export interface NetworkBody {
+  available: boolean;
+  text?: string;
+  truncated?: boolean;
+  reason?: string;
+}
+
+export interface NetworkEntry {
+  id: string;
+  timestamp: string;
+  performanceMs: number;
+  method: string;
+  url: string;
+  status: number;
+  statusText: string;
+  durationMs: number;
+  requestHeaders: HeaderEntry[];
+  requestBody: NetworkBody;
+  responseHeaders: HeaderEntry[];
+  responseBody: NetworkBody;
+  resourceType?: string;
+  error?: string;
+}
+
+export type NetworkFilter = 'all' | 'fetch-xhr' | 'error-only' | 'http-error';
+
+export interface PageEnvironment {
+  userAgent: string;
+  viewport: { width: number; height: number; devicePixelRatio: number };
+  readyState: string;
+}
+
+export interface SnapshotPageInfo extends PageInfo {
+  title: string;
+}
+
+export interface DebugSnapshot {
+  id: string;
+  timestamp: string;
+  page: SnapshotPageInfo;
+  environment: PageEnvironment;
+  localStorage: StorageEntry[];
+  sessionStorage: StorageEntry[];
+  cookies: CookieEntry[];
+  indexedDb: IndexedDbSummary[];
+  cacheStorage: Array<{ name: string; totalEntries: number; truncated: boolean; error?: string }>;
+  pinia: FrameworkState;
+  tanstackQuery: FrameworkState;
+}
+
+export interface DiffEntry {
+  path: string;
+  before: unknown;
+  after: unknown;
+  kind: 'added' | 'removed' | 'changed';
+}
+
+export interface SnapshotDiff {
+  beforeId: string;
+  afterId: string;
+  entries: DiffEntry[];
+}
+
+export interface DebugSessionStatus {
+  active: boolean;
+  startedAt?: string;
+  eventCount: number;
+  networkCount: number;
+  errorCount: number;
+}
+
+export interface AiDebugContext {
+  generatedAt: string;
+  page?: SnapshotPageInfo;
+  environment?: PageEnvironment;
+  session: DebugSessionStatus;
+  snapshots: { before?: DebugSnapshot; after?: DebugSnapshot; diff?: SnapshotDiff };
+  network: NetworkEntry[];
+  errors: DebugError[];
+  storageChanges: StorageChangeEvent[];
+  timeline: TimelineEvent[];
 }

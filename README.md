@@ -1,229 +1,227 @@
 # Web State Inspector
 
-**Web State Inspector** は、現在DevToolsで検査しているページのブラウザ内状態を、専用パネルで**読み取り専用**に確認する Chrome 拡張です。外部サーバーへの送信、解析機能、状態の書き換えは実装していません。
+**Web State Inspector** は、Chrome DevToolsに追加するManifest V3拡張です。Web StorageやCookieを閲覧するだけでなく、明示的に開始したデバッグ記録から **Storage変更、Network通信、JavaScript Errorを時系列で整理し、AIへ貼り付けられるMarkdownまたはJSONをローカル生成**します。
 
-> 設計原則は「取れないものを無理に取らない」です。ブラウザ標準のStorageは正確に表示し、フレームワーク内部状態は対象アプリが明示的に許可した場合に限って表示します。
+> AI Debug Contextとは、不具合の前後に発生した状態変化、通信失敗、例外、実行環境を、原因推論に必要な順序と粒度で整理したテキストです。本拡張はAIサービスへ接続・送信しません。利用者が内容を確認したうえで、任意のAIへ貼り付けるための出力を生成します。
 
-## 機能一覧
+## 主な機能
 
-| 分類 | 機能 | 実装状況 | 備考 |
-|---|---|---:|---|
-| Storage | localStorage | 対応 | Key / Value。JSON値は整形・折りたたみ・コピーに対応。 |
-| Storage | sessionStorage | 対応 | 現在の検査タブのKey / Valueを表示。 |
-| Storage | Cookie | 対応 | Name / Value / Domain / Path / Expires / Secure / HttpOnly / SameSiteを表示。 |
-| Storage | IndexedDB | 対応 | データベース、Object Store、最大100件のレコードを表示。 |
-| Storage | Cache Storage | 対応 | Cache名、Request URL、Method、Response statusを最大100件表示。 |
-| Debug | State Change Timeline | 対応 | 記録開始後のWeb Storage変更について、操作、変更前後、時刻、実行箇所を表示。 |
-| Framework | Pinia | Experimental | アプリが明示的診断ブリッジを公開したときだけ表示。 |
-| Framework | TanStack Query | Experimental | アプリが明示的診断ブリッジを公開したときだけ表示。 |
-| UI | Search | 対応 | localStorage、sessionStorage、Cookie、IndexedDB、State Change Timelineの現在表示中データを絞り込み。 |
-| UI | Refresh | 対応 | 現在選択しているカテゴリを手動で再取得。 |
-| UI | Auto Refresh | 対応 | Local Storage / Session Storageでオン・オフと更新間隔を設定。既定はオフ。 |
-
-`chrome.devtools.inspectedWindow.eval()` は、検査対象ページのJavaScript状態へアクセスできるDevTools拡張APIです。本拡張では同期的なStorage取得に利用し、取得値はJSON互換のデータとしてのみ扱います。[1]
-
-## スクリーンショット
-
-以下は読み込み後の想定構成です。実際の値には、DevToolsを開いているページのローカル状態が表示されます。
-
-```text
-Web State Inspector                                [Search key / value] [Refresh]
-
-Storage                                      │  Local Storage
-  Local Storage                               │  2 件
-  Session Storage                             │  ┌──────────────────┬─────────────────────┐
-  Cookies                                     │  │ Key              │ Value               │
-  IndexedDB                                   │  ├──────────────────┼─────────────────────┤
-  Cache Storage                               │  │ wsi.demo.user    │ { JSONを表示 }     │
-                                              │  └──────────────────┴─────────────────────┘
-Framework                                     │
-  Pinia (Experimental)                        │
-  TanStack Query (Experimental)               │
-```
-
-`sample/index.html` をローカルWebサーバーで開くと、全Storageと明示的なPinia / TanStack Query診断ブリッジを確認できます。
-
-![動作確認ページ。localStorage、sessionStorage、Cookie、IndexedDB / Cache Storage、Vue + Pinia、React + TanStack Queryのサンプルを表示。](docs/screenshots/demo-page.webp)
-
-## インストール方法
-
-Node.js 22以降とpnpmを使用します。
-
-```bash
-pnpm install
-pnpm run build
-```
-
-ビルドに成功すると、Chromeへ読み込む展開済み拡張が `dist/` に作成されます。
-
-## Chromeへの読み込み方法
-
-Chromeで `chrome://extensions/` を開き、画面右上の **デベロッパーモード** を有効にします。次に **パッケージ化されていない拡張機能を読み込む** を選び、このリポジトリの `dist/` ディレクトリを指定してください。
-
-拡張を読み込んだ後、HTTPまたはHTTPSの任意のページでDevToolsを開くと、上部のパネル一覧に **Web State Inspector** が追加されます。ソースを変更した場合は、`pnpm run build` 後に `chrome://extensions/` の更新ボタンで拡張を再読み込みしてください。
-
-## 使い方
-
-DevToolsで検査対象ページを開き、**Web State Inspector** パネルを選択します。左側のカテゴリを選ぶと内容を読み取り、右側に一覧を表示します。対象ページで状態が更新された場合は、右上の **Refresh** を押してください。
-
-値がJSONとして解析できるlocalStorage / sessionStorageの項目は、折りたたまれた整形JSONとして表示されます。展開後に **Copy** を選ぶと、整形された値をクリップボードへコピーできます。CookieはCookie APIから取得するため、HTTPOnly属性を持つCookieもChromeの権限が許す範囲で確認できます。[2]
-
-Local StorageまたはSession Storageを開くと、一覧上部に **Auto Refresh** と **Interval** が表示されます。Auto Refreshは既定でオフです。オンにすると、`500 ms`、`1 s`、`2 s`、`5 s`から選んだ間隔で現在の一覧だけを読み取り直します。手動のRefreshも引き続き利用できます。Auto RefreshはCookie、IndexedDB、Cache Storage、Framework Stateには適用しません。
-
-IndexedDBの一覧では、データベースとObject Storeを展開し、Storeを選択すると先頭から最大100件をCursorで読み取ります。Cache Storageも同様に、Cacheを選ぶと先頭から最大100件のRequestとResponse metadataを表示します。大量のデータを無制限に取得しないため、表示件数が上限を超える場合は明示します。
-
-## State Change Timeline
-
-State Change Timelineは、**「このStorageはなぜ変わったのか」**を調査するための記録機能です。左側で **State Change Timeline** を選び、**Record** を押した後に対象アプリを操作してください。localStorageまたはsessionStorageが標準APIで変更されると、操作、キー、変更前後、時刻、呼び出し元スタックを時系列に表示します。記録中は約0.7秒ごとに画面へ反映されます。
-
-| 操作 | 記録する内容 |
-|---|---|
-| `setItem(key, value)` | Storage種別、キー、変更前後、時刻、呼び出し元。値が同一の場合は`unchanged`。 |
-| `removeItem(key)` | Storage種別、キー、削除前の値、削除後の`null`、呼び出し元。 |
-| `clear()` | Storage種別、消去前のキー・値（最大100件）、時刻、呼び出し元。 |
-| 他の同一origin文書による変更 | `storage`イベントを補助的に記録。発生元URLは表示できるが、発生元のJavaScriptスタックは取得できない。 |
-
-**Stop** は計測フックを元に戻して記録を停止します。**Clear** はページのStorageを変更せず、パネルの記録だけを消去します。開始前の変更は遡及できず、ページ再読み込み後は記録バッファも消えます。記録中にLocal StorageまたはSession Storageの一覧へ移動すると、Auto Refreshのオン・オフにかかわらず、イベント取得と同じ`700 ms`間隔で一覧も自動追従します。
-
-Web標準の`storage`イベントは、変更を起こした同一ページでは発火せず、同じStorage領域を共有する別文書で発火します。[7] このため、同一ページの原因追跡には`Storage.prototype.setItem`、`removeItem`、`clear`の計測フックを使用します。Web Storageでは`setItem()`、`removeItem()`、`clear()`の使用が推奨されており、`localStorage.key = value`のようなプロパティ代入は初期版の計測対象外です。[8]
-
-> この機能はデバッグ中の信頼できる開発ページで使ってください。記録用フックは対象ページのメインフレームへ挿入されるため、記録中のページがStorageメソッドを独自に差し替える場合、その挙動は完全には追跡できません。Cookie、IndexedDB、Cache Storage、iframe内の変更も、初期版の記録対象外です。
-
-## 対応しているStorage
-
-| 対象 | 取得経路 | 表示単位 | 制限 |
-|---|---|---|---|
-| localStorage | 検査対象ページの文脈 | Key / Value | 同期読み取り。文字列またはJSONを表示。 |
-| sessionStorage | 検査対象ページの文脈 | Key / Value | タブ固有の状態を表示。 |
-| Cookie | `chrome.cookies.getAll()` | Cookie属性 | HTTP/HTTPSのURLのみ。全ホストの読み取り権限が必要。 |
-| IndexedDB | 検査対象ページの文脈 | DB → Store → Record | データベース列挙APIがない環境では空表示。Recordは100件まで。 |
-| Cache Storage | 検査対象ページの文脈 | Cache → Request | Response bodyは読まず、metadataのみ。Requestは100件まで。 |
-
-IndexedDBは構造化データをクライアント側に保存するための低水準APIです。[3] Cache Storageは名前付きCacheの集合としてRequest / Responseを保持し、本拡張では`Cache.keys()`と`Cache.match()`で読み取り専用のメタデータ表示を行います。[4]
-
-## Pinia / TanStack Queryの制限
-
-**すべてのWebサイトで取得できるわけではありません。** この制約は意図的です。
-
-Vue DevToolsにはPiniaの統合タブがありますが、これはVue DevTools自身の機能であり、第三者拡張が任意サイトのPinia storeを安全かつ安定的に列挙できる公開インターフェースではありません。[5] Piniaインスタンスがproduction buildでグローバルに露出することも保証されません。
-
-TanStack Queryも、公式Devtoolsは`QueryClientProvider`配下でコンポーネントとして読み込む方式です。通常のDevtoolsはproduction bundleから除外され、任意のサイトの`QueryClient`を第三者が発見できる一般APIは提供されていません。[6]
-
-そのため、本拡張は以下を**行いません**。
-
-- `window` やJavaScriptオブジェクトを無差別に走査してPiniaまたはQueryClientらしき値を探すこと。
-- Vue DevToolsまたはTanStack Query Devtoolsの内部プロトコル、非公開フック、バージョン依存hackに接続すること。
-- 検出できない状態をエラーとして扱ったり、アプリに状態変更を求めたりすること。
-
-代わりに、対象アプリの開発者が次の読み取り専用ブリッジを**明示的に**公開した場合だけ、Experimental項目として状態を表示します。拡張は`getPinia`または`getTanStackQuery`が存在しなければ `Not detected` を表示します。
-
-```ts
-// 開発用のエントリポイントなど、公開範囲を理解した場所に置いてください。
-declare global {
-  interface Window {
-    __WEB_STATE_INSPECTOR__?: {
-      version: 1;
-      getPinia?: () => unknown | Promise<unknown>;
-      getTanStackQuery?: () => unknown | Promise<unknown>;
-    };
-  }
-}
-
-window.__WEB_STATE_INSPECTOR__ = Object.freeze({
-  version: 1,
-  getPinia: () => ({
-    userStore: { id: userStore.$id, state: userStore.$state },
-  }),
-  getTanStackQuery: () => queryClient.getQueryCache().getAll().map((query) => ({
-    queryKey: query.queryKey,
-    status: query.state.status,
-    data: query.state.data ?? null,
-    updatedAt: query.state.dataUpdatedAt || null,
-  })),
-});
-```
-
-このブリッジは本番環境へ自動的に含めないことを推奨します。本番でも使う場合は、認証情報・トークン・個人情報などを返さないようアプリ側で必要最小限のスナップショットに制限してください。拡張は任意のWebページを検査できるため、ページから返る値は信頼できない入力として扱い、UIへHTMLとして挿入しません。[1]
-
-## 権限について
-
-| Manifest設定 | 用途 | 必要性 |
+| 区分 | 機能 | 内容 |
 |---|---|---|
-| `devtools_page` | DevToolsに専用パネルを追加する。 | 必須 |
-| `cookies` | `chrome.cookies.getAll()`によるCookieの読み取り。 | Cookie表示に必須 |
-| `host_permissions: ["<all_urls>"]` | ユーザーがDevToolsで検査する任意HTTP/HTTPSサイトのCookie読み取り。 | Cookie表示に必須 |
+| Storage | Local Storage / Session Storage | Key / Valueの読み取り、JSON整形、コピー、検索、手動Refresh、Auto Refresh。 |
+| Storage | Cookie | Name、Value、Domain、Path、Expires、Secure、HttpOnly、SameSiteを表示。 |
+| Storage | IndexedDB / Cache Storage | IndexedDBのメタデータと先頭100件のrecord、Cacheのメタデータと先頭100件のentryを表示。 |
+| Framework | Pinia / TanStack Query | **Experimental**。対象アプリが明示的診断ブリッジを公開した場合だけ読み取る。 |
+| Debug | Debug Recording | Start Recording以降のStorage、Network、Errorを固定長バッファへ記録。 |
+| Debug | Unified Timeline | Storage変更、Network Request / Response、JavaScript Error、console.error、Promise rejectionを時刻順に統合。 |
+| Debug | Network | HAR由来のmethod、URL、status、duration、headersと、取得可能なresponse bodyを表示。 |
+| Debug | Errors | `error`、`unhandledrejection`、`console.error`を重複抑制して表示。 |
+| Debug | Snapshots | 現在状態をCapture Before / Capture Afterし、単純なJSON構造比較を表示。 |
+| Debug | AI Export | 優先情報をMarkdownまたはJSONへ整形し、Copy for AIでクリップボードへコピー。 |
 
-ChromeのCookie APIは、`cookies` 権限に加えて対象ホストのホスト権限を要求します。[2] 本拡張は`tabs`、`scripting`、`storage`、`webRequest`、書き込み用Cookie API、コンテンツスクリプトを使用しません。
+`chrome.devtools.inspectedWindow.eval()`は、検査中ページのJavaScript状態にアクセスできるDevTools拡張APIです。本拡張は、Storageや明示的診断ブリッジなど、ページのJavaScript状態を読む必要がある箇所に限って利用し、受け取る値をJSON互換値に限定します。[1]
+
+## インストール
+
+1. このリポジトリをcloneするか、Release相当の`dist/`フォルダを入手します。
+2. `chrome://extensions/` を開き、**デベロッパーモード**を有効化します。
+3. **パッケージ化されていない拡張機能を読み込む**を選択します。
+4. リポジトリの `dist/` フォルダを選択します。
+5. 任意のWebページを開き、DevToolsの **Web State Inspector** パネルを選択します。
+
+開発時は、変更後に `pnpm run build` を実行し、`chrome://extensions/` の再読み込みを行ってください。
+
+## 基本的な使い方
+
+### 状態の閲覧とAuto Refresh
+
+左側のStorageまたはFrameworkカテゴリを選ぶと、対象ページの現在値を読み取ります。Local StorageとSession Storageでは、一覧上部の **Auto Refresh** をオンにすると、`500 ms`、`1 s`、`2 s`、`5 s`から選んだ間隔で現在の一覧だけを再取得します。Auto Refreshの既定値はオフです。
+
+State Change TimelineがRecord中であれば、Local StorageまたはSession Storageの一覧はAuto Refreshの設定にかかわらず`700 ms`間隔で追従します。Cookie、IndexedDB、Cache Storage、Framework Stateには無制限のポーリングを行いません。
+
+### Debug Recording
+
+左側の **Debug / Timeline** を開き、**Start Recording** を押します。その時点から、次のイベントを記録します。**Stop** は記録用のStorage・Errorフックを元に戻し、**Clear** は対象ページを変更せず、拡張側の記録だけを削除します。
+
+| イベント | 取得する情報 | 上限 |
+|---|---|---:|
+| Storage変更 | `setItem`、`removeItem`、`clear`、変更前後、時刻、呼び出し元スタック。 | Timeline合計1,000件 |
+| 別文書のStorage変更 | 同一originの別文書から届く`storage`イベントと発生元URL。 | Timeline合計1,000件 |
+| Network | method、URL、status、duration、request / response headers、取得可能なbody。 | 500件 |
+| JavaScript Error | message、stack、source URL、line、column。 | 200件 |
+| Promise rejection / console.error | kind、message、stack、重複回数。 | 200件 |
+
+`storage`イベントは変更を起こした同一ページではなく、同じStorage領域を共有する別文書で発火します。[2] そのため、同一ページでの原因追跡には、Record中に`Storage.prototype.setItem`、`removeItem`、`clear`を計測する方式を使用します。`localStorage.key = value`のようなプロパティ代入は、この初期版の追跡対象外です。
+
+### Network
+
+**Debug / Network** では、Start Recording以降に完了した通信を確認できます。Chrome DevTools Network APIは、Networkパネルに表示される通信をHAR形式で提供し、`onRequestFinished`から完了後のRequestを受け取れます。[3] 表示は **All**、**Fetch/XHR**、**Error only**、**4xx / 5xx** で絞り込めます。
+
+HARにはrequest contentが含まれないため、request bodyは利用可能なHAR postDataがある場合だけ表示します。[3] response bodyは`getContent()`を試行し、取得できない場合は `Not available` と理由を示します。取得できたbodyも、メモリとAI出力を保護するため最大100KiBで切り詰め、`[truncated]`を付加します。DevToolsを開く前に発生した通信はAPIの記録に存在しない可能性があるため、Debug RecordingはStart以降の通信を対象にします。[3]
+
+### JavaScript Errors
+
+**Debug / Errors** は、ページの`error`、`unhandledrejection`、`console.error`を記録します。未処理のPromise rejectionはグローバルスコープへ`unhandledrejection`イベントとして送られますが、クロスoriginスクリプト由来のrejectionはブラウザの情報漏えい対策により取得できない場合があります。[4] 同一のmessage・source・行・列が短時間に複数経路から記録された場合は、重複表示を避けて回数を集約します。
+
+### SnapshotとBefore / After Diff
+
+**Debug / Snapshots** で **Capture Before** を押し、対象アプリを操作した後に **Capture After** を押します。**Show Diff** は巨大なdeep-diffライブラリに依存せず、JSON互換値を再帰比較して、追加・削除・変更を表示します。
+
+Snapshotには次の情報を含めます。
+
+| 区分 | 内容 |
+|---|---|
+| Page | URL、origin、title。 |
+| Environment | User Agent、viewport、device pixel ratio、`document.readyState`。 |
+| State | localStorage、sessionStorage、Cookie、IndexedDB metadata、Cache Storage metadata。 |
+| Framework | 明示的診断ブリッジから取得できた場合だけ、PiniaとTanStack Queryの状態。 |
+
+PiniaとTanStack Queryは、`window`全体を探索せず、対象アプリが`window.__WEB_STATE_INSPECTOR__`で明示的に提供した読み取り専用ブリッジだけを使用します。ブリッジがなければ **Not detected** と表示します。
+
+### Copy for AI
+
+**Debug / AI Export** で出力形式をMarkdownまたはJSONから選び、**Copy for AI** を押します。出力には、Page、Environment、記録件数、JavaScript Errors、失敗したNetwork、Storage Changes、Snapshot Diff、Unified Timelineを優先的に含めます。Snapshotをまだ取得していない場合、Copy時に現在のSnapshotを読み取ります。
+
+Markdown出力は次のような構造です。
+
+~~~~markdown
+# Web Debug Context
+
+## Page
+
+URL: https://example.com/customers/123
+
+Title: Customer Detail
+
+## Network Errors
+
+### 1. GET https://example.com/api/contracts/123
+
+Status: 500 Internal Server Error
+
+Duration: 61 ms
+
+## Storage Changes
+
+### Storage change 1
+
+Area: localStorage
+
+Key: selectedCustomerId
+
+Before:
+
+```
+100
+```
+
+After:
+
+```
+123
+```
+
+## Unified Timeline
+
+```
+10:21:01 STORAGE localStorage.selectedCustomerId 100 → 123
+10:21:01 REQUEST GET /api/customers/123
+10:21:01 RESPONSE 500 GET /api/contracts/123 (61 ms)
+10:21:01 JAVASCRIPT-ERROR TypeError: Cannot read properties of undefined
+```
+~~~~
+
+JSON出力は同じ情報を`page`、`environment`、`session`、`snapshots`、`network`、`errors`、`storageChanges`、`timeline`のキーで保持します。AIサービスへ送信する処理は一切ありません。
+
+## 取得範囲と制約
+
+| 対象 | 取得する範囲 | 取得しない・制約 |
+|---|---|---|
+| localStorage / sessionStorage | 現在値、標準メソッドによる記録開始後の変更。 | 記録開始前、プロパティ代入、iframe内の変更。 |
+| Cookie | Chromeの権限範囲で取得できるCookie。 | Cookie値の自動マスキングは初期版では未実装。 |
+| Network | DevToolsに現れる完了RequestのHAR情報、取得可能なbody。 | 取得不能なbody、Start前の通信、WebSocket/SSE専用イベント。 |
+| JavaScript Error | メインフレームの`error`、`unhandledrejection`、`console.error`。 | クロスorigin制約を受けるPromise rejection、Worker専用の例外。 |
+| IndexedDB / Cache Storage | 現在のmetadataと、手動画面での読み取り。 | 変更履歴の追跡。 |
+| Pinia / TanStack Query | 明示的診断ブリッジが返すJSON互換の状態。 | Vue / React DevToolsの内部API、無差別なグローバル探索。 |
+
+Fetchはネットワーク例外ではrejectしますが、404や500などのHTTPエラーでは通常Responseとして解決するため、Network Errorの判定にはstatusも使用します。[5] XHRはstatus、responseText、response headersを提供できますが、実際に拡張が表示するNetwork情報は、ページを改変せずにDevTools Network APIから収集できる範囲を優先します。[6]
 
 ## セキュリティとプライバシー
 
-| 項目 | 方針 |
-|---|---|
-| データ送信 | 実装しない。ネットワーク通信、Analytics、外部API呼び出しはない。 |
-| 状態変更 | 実装しない。Storage、Cookie、IndexedDB、Cache Storageは読み取りのみ。 |
-| 表示対象 | DevToolsを開いた現在の検査対象ページのメインフレーム。 |
-| 大量データ | IndexedDBとCache Storageは最大100件に制限。 |
-| Framework State | 明示的に公開された読み取り専用ブリッジだけを使用。 |
+本拡張は収集したデータを外部API、サーバー、AIサービスへ送信しません。Network、Cookie、Storage、Snapshot、AI Exportは、検査中ページとローカルの拡張プロセス内でだけ処理します。
 
-> `sample/` はVue、Pinia、React、TanStack QueryをCDNから読み込むデモです。これはサンプルページ自身の依存読み込みであり、拡張のデータ送信機能ではありません。配布する`dist/`拡張は外部スクリプトを読み込みません。
+> **Copy for AIを押す前に、必ず内容を確認してください。** Cookie、Authorization header、access token、個人情報、顧客情報、入力値、response bodyなどの機密情報が含まれることがあります。初期版には自動マスキングを実装していません。利用者が不要な情報を削除・確認したうえで、外部AIサービスへ貼り付けてください。
 
-## 技術スタック
+Debug RecordingのStorage・Error計測は、対象ページのメインフレームに一時的なフックを設定します。Stopを押すと、計測フックは元のメソッドへ復元します。信頼できる開発・検証環境で使用してください。
 
-| 要素 | 採用技術 |
-|---|---|
-| 拡張形式 | Chrome Extension Manifest V3 |
-| 言語 | TypeScript |
-| UI | Vanilla TypeScript / DOM API |
-| DevTools連携 | `chrome.devtools.panels`、`chrome.devtools.inspectedWindow` |
-| Cookie | `chrome.cookies` |
-| ビルド | TypeScript Compiler、Node.js |
+## パフォーマンス設計
 
-Reactを拡張パネル自体には導入していません。パネルの状態と画面要素が小規模であり、依存・バンドルサイズを増やさず、Manifest V3で必要な静的ビルドを単純に保つためです。`sample/`では、診断ブリッジの利用例を示すためVue + PiniaとReact + TanStack Queryを用います。
+| バッファ | 上限 | 方針 |
+|---|---:|---|
+| Unified Timeline | 1,000イベント | 上限超過時は古いイベントから破棄するリングバッファ。 |
+| Network | 500件 | 完了済みRequestだけを保持。 |
+| Error | 200件 | 重複を集約し、上限超過時は古いErrorを破棄。 |
+| response body | 100KiB / 件 | 上限超過時は切り詰めて明示。 |
+| IndexedDB / Cache表示 | 100件 / StoreまたはCache | 無制限の読み取りを避ける。 |
+
+## アーキテクチャ
+
+| 層 | 主なファイル | 責務 |
+|---|---|---|
+| Domain | `src/shared/types.ts` | Network、Error、Timeline、Snapshot、Diff、AI Contextの型。 |
+| Collectors | `network-collector.ts`、`error-collector.ts`、`change-tracker.ts` | 読み取り・記録・上限管理。 |
+| Session | `debug-session.ts` | Storage・Network・Errorを共通Timelineへ集約。 |
+| Snapshot | `snapshot-service.ts` | 現在状態の取得とBefore / After比較。 |
+| Formatter | `ai-export.ts` | AI向けMarkdown / JSONのローカル生成。 |
+| UI | `main.ts` | DevToolsナビゲーション、各Debug画面、Copy操作。 |
+
+## 開発とテスト
+
+```bash
+pnpm install
+pnpm run verify
+```
+
+`pnpm run verify` は、TypeScript型検査、`dist/`組み立て、Node標準テストを連続実行します。テストはNetworkのHAR正規化とフィルタ、response body切り詰め、Network / Timeline上限、Storage変更、Error統合、Snapshot生成、Before / After Diff、Markdown / JSON整形、Auto Refresh、Manifestとアイコン、読み取り専用設計を検証します。
+
+動作確認ページは次のコマンドで起動できます。
+
+```bash
+node scripts/serve.mjs
+# http://localhost:4173/sample/
+```
+
+サンプルページには、Storage変更、Fetch 200 / 500、XHR POST 201、`console.error`、未処理Promise rejection、Pinia、TanStack Queryを発生させる操作を用意しています。
 
 ## ディレクトリ構成
 
 ```text
-web-state-inspector/
-├── static/                         # Manifestと配布用HTML/CSS
-│   ├── manifest.json
-│   ├── devtools.html
-│   └── panel/
-├── src/
-│   ├── devtools.ts                  # パネル登録
-│   ├── background/service-worker.ts # Cookieの読み取り
-│   ├── panel/
-│   │   ├── main.ts                  # UIと取得制御
-│   │   ├── page-evaluator.ts        # 検査対象ページでの安全な読み取り
-│   │   └── change-tracker.ts        # Web Storage変更の記録フック
-│   └── shared/types.ts
-├── sample/index.html                # 動作確認用ページ
-├── docs/research-decision.md        # Framework Stateの調査判断
-├── docs/change-tracking-research.md # State Change Timelineの設計判断
-├── scripts/build.mjs                # dist組み立て
-├── tests/                           # 静的構成の回帰検査
-├── package.json
-└── README.md
+src/
+├── background/service-worker.ts
+├── devtools.ts
+├── panel/
+│   ├── ai-export.ts
+│   ├── change-tracker.ts
+│   ├── debug-session.ts
+│   ├── error-collector.ts
+│   ├── main.ts
+│   ├── network-collector.ts
+│   ├── page-evaluator.ts
+│   ├── snapshot-service.ts
+│   └── storage-polling.ts
+└── shared/types.ts
+sample/index.html
+docs/ai-debug-context-research.md
+docs/change-tracking-research.md
+docs/verification-notes.md
+tests/
 ```
-
-## 開発方法
-
-```bash
-pnpm install
-pnpm run typecheck  # 型検査
-pnpm run build      # dist/生成
-pnpm run test       # 配布物の構成・安全性を検査
-pnpm run verify     # 上記を順番に実行
-```
-
-動作確認ページは、任意のローカル静的Webサーバーから `sample/` を配信してください。例えばプロジェクトルートから静的サーバーを起動し、`http://localhost:<port>/sample/` を開きます。次にDevToolsのWeb State InspectorでカテゴリごとにRefreshを実行し、localStorage、sessionStorage、Cookie、`wsi-demo-db`、`wsi-demo-cache-v1`、Pinia、TanStack Queryの表示を確認します。
 
 ## 参考資料
 
 [1]: https://developer.chrome.com/docs/extensions/reference/api/devtools/inspectedWindow "chrome.devtools.inspectedWindow | Chrome for Developers"
-[2]: https://developer.chrome.com/docs/extensions/reference/api/cookies "chrome.cookies | Chrome for Developers"
-[3]: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API "IndexedDB API | MDN Web Docs"
-[4]: https://developer.mozilla.org/en-US/docs/Web/API/CacheStorage "CacheStorage | MDN Web Docs"
-[5]: https://devtools.vuejs.org/getting-started/features "Features | Vue DevTools"
-[6]: https://tanstack.com/query/latest/docs/framework/react/devtools "Devtools | TanStack Query"
-[7]: https://developer.mozilla.org/en-US/docs/Web/API/Window/storage_event "Window: storage event | MDN Web Docs"
-[8]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API/Using_the_Web_Storage_API "Using the Web Storage API | MDN Web Docs"
+[2]: https://developer.mozilla.org/en-US/docs/Web/API/Window/storage_event "Window: storage event | MDN Web Docs"
+[3]: https://developer.chrome.com/docs/extensions/reference/api/devtools/network "chrome.devtools.network | Chrome for Developers"
+[4]: https://developer.mozilla.org/en-US/docs/Web/API/Window/unhandledrejection_event "Window: unhandledrejection event | MDN Web Docs"
+[5]: https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch "Using the Fetch API | MDN Web Docs"
+[6]: https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest "XMLHttpRequest | MDN Web Docs"

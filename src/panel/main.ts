@@ -1,9 +1,20 @@
+import { formatAiContextJson, formatAiContextMarkdown, createAiDebugContext } from './ai-export.js';
 import { ChangeTracker } from './change-tracker.js';
+import { DebugSession } from './debug-session.js';
+import { ErrorCollector } from './error-collector.js';
+import { matchesNetworkFilter } from './network-collector.js';
 import { PageEvaluator } from './page-evaluator.js';
+import { diffSnapshots, SnapshotService } from './snapshot-service.js';
 import { isStorageList, StoragePollingController } from './storage-polling.js';
 import type {
+  AiDebugContext,
   CacheSummary,
   ChangeTrackingSnapshot,
+  DebugSnapshot,
+  DiffEntry,
+  NetworkEntry,
+  NetworkFilter,
+  TimelineEvent,
   CookieEntry,
   CookieResponse,
   FrameworkState,
@@ -15,7 +26,16 @@ import type {
 
 const evaluator = new PageEvaluator();
 const changeTracker = new ChangeTracker(evaluator);
+const errorCollector = new ErrorCollector(evaluator);
+const debugSession = new DebugSession(changeTracker, errorCollector);
+const snapshotService = new SnapshotService(evaluator, requestCookies);
 let trackingPollId: number | undefined;
+let debugPollId: number | undefined;
+let networkFilter: NetworkFilter = 'all';
+let beforeSnapshot: DebugSnapshot | undefined;
+let afterSnapshot: DebugSnapshot | undefined;
+let currentDiff: DiffEntry[] | undefined;
+let exportFormat: 'markdown' | 'json' = 'markdown';
 let changeTrackingActive = false;
 const root = document.querySelector<HTMLDivElement>('#app');
 
@@ -49,13 +69,18 @@ const storagePolling = new StoragePollingController(
   () => { void refreshPanel({ background: true }); },
 );
 
-const navItems: Array<{ id: NavigationId; label: string; group: 'Storage' | 'Framework'; experimental?: boolean }> = [
+const navItems: Array<{ id: NavigationId; label: string; group: 'Storage' | 'Framework' | 'Debug'; experimental?: boolean }> = [
   { id: 'local-storage', label: 'Local Storage', group: 'Storage' },
   { id: 'session-storage', label: 'Session Storage', group: 'Storage' },
   { id: 'cookies', label: 'Cookies', group: 'Storage' },
   { id: 'indexeddb', label: 'IndexedDB', group: 'Storage' },
   { id: 'cache-storage', label: 'Cache Storage', group: 'Storage' },
   { id: 'change-timeline', label: 'State Change Timeline', group: 'Storage' },
+  { id: 'debug-timeline', label: 'Timeline', group: 'Debug' },
+  { id: 'network', label: 'Network', group: 'Debug' },
+  { id: 'errors', label: 'Errors', group: 'Debug' },
+  { id: 'snapshots', label: 'Snapshots', group: 'Debug' },
+  { id: 'ai-export', label: 'AI Export', group: 'Debug' },
   { id: 'pinia', label: 'Pinia', group: 'Framework', experimental: true },
   { id: 'tanstack-query', label: 'TanStack Query', group: 'Framework', experimental: true },
 ];
@@ -249,7 +274,7 @@ function requestCookies(url: string): Promise<CookieResponse> {
 }
 
 function isSearchable(id: NavigationId): boolean {
-  return ['local-storage', 'session-storage', 'cookies', 'indexeddb', 'change-timeline'].includes(id);
+  return ['local-storage', 'session-storage', 'cookies', 'indexeddb', 'change-timeline', 'debug-timeline', 'network', 'errors'].includes(id);
 }
 
 function renderShell(): void {
@@ -259,7 +284,7 @@ function renderShell(): void {
   const brand = element('div', 'brand');
   brand.append(element('h1', undefined, 'Web State Inspector'), element('p', undefined, 'Read-only browser state inspection'));
   sidebar.append(brand);
-  for (const group of ['Storage', 'Framework'] as const) {
+  for (const group of ['Storage', 'Framework', 'Debug'] as const) {
     const groupNode = element('nav', 'nav-group');
     groupNode.setAttribute('aria-label', group);
     groupNode.append(element('div', 'nav-group-title', group));
@@ -271,8 +296,10 @@ function renderShell(): void {
       button.addEventListener('click', () => {
         if (state.selected === item.id) return;
         if (state.selected === 'change-timeline' && item.id !== 'change-timeline') stopTrackingPolling();
+        if (['debug-timeline', 'network', 'errors', 'ai-export'].includes(state.selected) && !['debug-timeline', 'network', 'errors', 'ai-export'].includes(item.id)) stopDebugPolling();
         state.selected = item.id;
         syncStoragePolling();
+        if (['debug-timeline', 'network', 'errors', 'ai-export'].includes(item.id) && debugSession.getStatus().active) startDebugPolling();
         state.query = '';
         refreshPanel();
       });
@@ -550,6 +577,270 @@ function renderChangeTimeline(snapshot: ChangeTrackingSnapshot): HTMLElement {
   return section;
 }
 
+function formatTime(timestamp: string): string {
+  return new Date(timestamp).toLocaleTimeString();
+}
+
+function renderDebugControls(): HTMLElement {
+  const controls = element('div', 'timeline-controls');
+  const status = debugSession.getStatus();
+  const start = element('button', 'action-button', 'Start Recording');
+  start.type = 'button';
+  start.disabled = status.active;
+  start.addEventListener('click', () => { void startDebugRecording(); });
+  const stop = element('button', 'action-button', 'Stop');
+  stop.type = 'button';
+  stop.disabled = !status.active;
+  stop.addEventListener('click', () => { void stopDebugRecording(); });
+  const clearButton = element('button', 'action-button', 'Clear');
+  clearButton.type = 'button';
+  clearButton.disabled = !status.active && status.eventCount === 0 && status.networkCount === 0 && status.errorCount === 0;
+  clearButton.addEventListener('click', () => { void clearDebugRecording(); });
+  const indicator = element('span', `status${status.active ? ' detected' : ''}`, status.active ? `Recording · ${status.eventCount} events` : `Stopped · ${status.eventCount} events`);
+  controls.append(start, stop, clearButton, indicator);
+  return controls;
+}
+
+function renderDebugTimeline(): HTMLElement {
+  const section = element('section');
+  section.append(renderDebugControls(), element('p', 'summary', 'Storage変更、Networkの開始・完了、JavaScript Error、console.error、Promise rejectionを時刻順に表示します。'));
+  const events = debugSession.getTimeline().filter((event) => matchesQuery([event.kind, event.summary])).slice().reverse();
+  if (events.length === 0) {
+    section.append(element('div', 'empty', 'Start Recordingを押してから対象アプリを操作してください。'));
+    return section;
+  }
+  const { table, body } = createTable(['When', 'Type', 'Summary']);
+  for (const event of events) {
+    const row = element('tr');
+    row.append(element('td', undefined, formatTime(event.timestamp)), element('td', 'key-cell', event.kind), element('td', 'value-cell', event.summary));
+    body.append(row);
+  }
+  section.append(table);
+  return section;
+}
+
+function renderNetwork(): HTMLElement {
+  const section = element('section');
+  section.append(renderDebugControls());
+  const filters = element('div', 'filter-controls');
+  for (const [id, label] of [['all', 'All'], ['fetch-xhr', 'Fetch/XHR'], ['error-only', 'Error only'], ['http-error', '4xx / 5xx']] as Array<[NetworkFilter, string]>) {
+    const button = element('button', `filter-button${networkFilter === id ? ' active' : ''}`, label);
+    button.type = 'button';
+    button.addEventListener('click', () => { networkFilter = id; renderCurrentData(); });
+    filters.append(button);
+  }
+  section.append(filters);
+  const entries = debugSession.getNetwork().filter((entry) => matchesNetworkFilter(entry, networkFilter)).filter((entry) => matchesQuery([entry.method, entry.url, entry.status, entry.statusText, entry.resourceType ?? ''])).slice().reverse();
+  section.append(element('p', 'summary', `${entries.length} 件${networkFilter !== 'all' ? '（フィルタ適用）' : ''}。response bodyは取得できた場合のみ最大100KiBまで表示します。`));
+  if (entries.length === 0) {
+    section.append(element('div', 'empty', '該当するNetwork記録はありません。Start Recording以降の完了リクエストが対象です。'));
+    return section;
+  }
+  const { table, body } = createTable(['When', 'Method', 'URL', 'Status', 'Duration', 'Details']);
+  for (const entry of entries) {
+    const detailCell = element('td', 'value-cell');
+    const details = element('details') as HTMLDetailsElement;
+    details.append(element('summary', undefined, 'Headers / body'));
+    details.append(element('h4', undefined, 'Request headers'), jsonView(entry.requestHeaders, false));
+    details.append(element('h4', undefined, 'Request body'), element('pre', 'value-text', entry.requestBody.available ? entry.requestBody.text ?? '' : `Not available: ${entry.requestBody.reason ?? 'Unknown reason.'}`));
+    details.append(element('h4', undefined, 'Response headers'), jsonView(entry.responseHeaders, false));
+    details.append(element('h4', undefined, 'Response body'), element('pre', 'value-text', entry.responseBody.available ? entry.responseBody.text ?? '' : `Not available: ${entry.responseBody.reason ?? 'Unknown reason.'}`));
+    detailCell.append(details);
+    const row = element('tr');
+    row.append(
+      element('td', undefined, formatTime(entry.timestamp)),
+      element('td', 'key-cell', entry.method),
+      element('td', 'value-cell', entry.url),
+      element('td', undefined, `${entry.status || '—'} ${entry.statusText}`),
+      element('td', undefined, `${entry.durationMs} ms`),
+      detailCell,
+    );
+    body.append(row);
+  }
+  section.append(table);
+  return section;
+}
+
+function renderErrors(): HTMLElement {
+  const section = element('section');
+  section.append(renderDebugControls());
+  const errors = debugSession.getErrors().filter((error) => matchesQuery([error.kind, error.message, error.sourceUrl ?? '', ...error.stack])).slice().reverse();
+  section.append(element('p', 'summary', `${errors.length} 件。error、unhandledrejection、console.errorを重複を抑えて記録します。`));
+  if (errors.length === 0) {
+    section.append(element('div', 'empty', 'JavaScript Errorは記録されていません。'));
+    return section;
+  }
+  const { table, body } = createTable(['When', 'Kind', 'Message', 'Source', 'Stack']);
+  for (const error of errors) {
+    const row = element('tr');
+    row.append(
+      element('td', undefined, formatTime(error.timestamp)),
+      element('td', 'key-cell', error.kind),
+      element('td', 'value-cell', error.duplicateCount > 1 ? `${error.message} (×${error.duplicateCount})` : error.message),
+      element('td', 'value-cell', error.sourceUrl ? `${error.sourceUrl}:${error.line ?? '?'}:${error.column ?? '?'}` : 'Not available'),
+      element('td', 'value-cell', error.stack.join('\n') || 'Not available'),
+    );
+    body.append(row);
+  }
+  section.append(table);
+  return section;
+}
+
+function renderSnapshotSummary(label: string, snapshot?: DebugSnapshot): HTMLElement {
+  if (!snapshot) return element('div', 'empty', `${label} Snapshotは未取得です。`);
+  return element('div', 'snapshot-summary', `${label}: ${snapshot.timestamp} · ${snapshot.page.title || 'Untitled'} · ${snapshot.page.url}`);
+}
+
+function renderSnapshots(): HTMLElement {
+  const section = element('section');
+  const controls = element('div', 'timeline-controls');
+  const before = element('button', 'action-button', 'Capture Before');
+  before.type = 'button';
+  before.addEventListener('click', () => { void captureSnapshot('before'); });
+  const after = element('button', 'action-button', 'Capture After');
+  after.type = 'button';
+  after.addEventListener('click', () => { void captureSnapshot('after'); });
+  const diff = element('button', 'action-button', 'Show Diff');
+  diff.type = 'button';
+  diff.disabled = !beforeSnapshot || !afterSnapshot;
+  diff.addEventListener('click', () => { if (beforeSnapshot && afterSnapshot) { currentDiff = diffSnapshots(beforeSnapshot, afterSnapshot).entries; renderCurrentData(); } });
+  controls.append(before, after, diff);
+  section.append(controls, renderSnapshotSummary('Before', beforeSnapshot), renderSnapshotSummary('After', afterSnapshot));
+  if (!currentDiff) {
+    section.append(element('p', 'summary', 'Capture Before後に対象アプリを操作し、Capture Afterを押してからShow Diffを選択してください。'));
+    return section;
+  }
+  section.append(element('p', 'summary', `${currentDiff.length} 件の差分。Storage、明示的診断ブリッジのFramework State、IndexedDB metadata、Cache Storage metadataを比較します。`));
+  if (currentDiff.length === 0) {
+    section.append(element('div', 'empty', 'Before / Afterの差分はありません。'));
+    return section;
+  }
+  const { table, body } = createTable(['Kind', 'Path', 'Before', 'After']);
+  for (const entry of currentDiff) {
+    const row = element('tr');
+    row.append(element('td', undefined, entry.kind), element('td', 'key-cell', entry.path), element('td', 'value-cell', JSON.stringify(entry.before)), element('td', 'value-cell', JSON.stringify(entry.after)));
+    body.append(row);
+  }
+  section.append(table);
+  return section;
+}
+
+function renderAiExport(): HTMLElement {
+  const section = element('section');
+  const status = debugSession.getStatus();
+  section.append(element('div', 'notice warning', 'Copy for AIは外部送信を行いません。貼り付け前にCookie、Authorization、token、個人情報、顧客情報などの機密情報を必ず確認してください。'));
+  section.append(element('p', 'summary', `Events: ${status.eventCount} · Errors: ${status.errorCount} · Network: ${status.networkCount} · Snapshots: ${Number(Boolean(beforeSnapshot)) + Number(Boolean(afterSnapshot))}`));
+  const formatControls = element('div', 'format-controls');
+  for (const [value, label] of [['markdown', 'Markdown'], ['json', 'JSON']] as Array<['markdown' | 'json', string]>) {
+    const labelNode = element('label', 'toggle-label');
+    const input = element('input') as HTMLInputElement;
+    input.type = 'radio';
+    input.name = 'export-format';
+    input.value = value;
+    input.checked = exportFormat === value;
+    input.addEventListener('change', () => { exportFormat = value; renderCurrentData(); });
+    labelNode.append(input, document.createTextNode(label));
+    formatControls.append(labelNode);
+  }
+  const copy = element('button', 'action-button', 'Copy for AI');
+  copy.type = 'button';
+  copy.addEventListener('click', () => { void copyForAi(copy); });
+  section.append(formatControls, copy, element('p', 'summary', '失敗したNetwork、JavaScript Error、Storage変更、Unified Timeline、利用可能なSnapshot Diffを優先して出力します。'));
+  return section;
+}
+
+async function buildAiContext(): Promise<AiDebugContext> {
+  await debugSession.refresh();
+  let selectedSnapshot = afterSnapshot ?? beforeSnapshot;
+  if (!selectedSnapshot) {
+    const captured = await snapshotService.capture();
+    if (captured.ok && captured.data) {
+      afterSnapshot = captured.data;
+      selectedSnapshot = captured.data;
+    }
+  }
+  const diff = beforeSnapshot && afterSnapshot ? diffSnapshots(beforeSnapshot, afterSnapshot) : undefined;
+  return createAiDebugContext({
+    before: beforeSnapshot,
+    after: selectedSnapshot === afterSnapshot ? afterSnapshot : undefined,
+    diff,
+    network: debugSession.getNetwork(),
+    errors: debugSession.getErrors(),
+    storageChanges: await debugSession.getStorageChanges(),
+    timeline: debugSession.getTimeline(),
+    session: debugSession.getStatus(),
+  });
+}
+
+async function copyForAi(button: HTMLButtonElement): Promise<void> {
+  button.disabled = true;
+  button.textContent = 'Preparing…';
+  const context = await buildAiContext();
+  await copyText(exportFormat === 'markdown' ? formatAiContextMarkdown(context) : formatAiContextJson(context), button);
+  button.disabled = false;
+}
+
+async function captureSnapshot(target: 'before' | 'after'): Promise<void> {
+  setBody(renderUnavailable(`${target === 'before' ? 'Before' : 'After'} Snapshotを取得しています。`));
+  const result = await snapshotService.capture();
+  if (!result.ok || !result.data) {
+    setBody(renderUnavailable(result.error ?? 'Snapshotを取得できません。', true));
+    return;
+  }
+  if (target === 'before') beforeSnapshot = result.data;
+  else afterSnapshot = result.data;
+  currentDiff = undefined;
+  renderCurrentData();
+}
+
+function stopDebugPolling(): void {
+  if (debugPollId !== undefined) window.clearInterval(debugPollId);
+  debugPollId = undefined;
+}
+
+function startDebugPolling(): void {
+  stopDebugPolling();
+  debugPollId = window.setInterval(() => {
+    void debugSession.refresh().then(() => {
+      if (['debug-timeline', 'network', 'errors', 'ai-export'].includes(state.selected)) renderCurrentData();
+    });
+  }, 500);
+}
+
+async function startDebugRecording(): Promise<void> {
+  setBody(renderUnavailable('Storage、Network、Errorの記録を開始しています。'));
+  const result = await debugSession.start();
+  if (!result.ok) {
+    setBody(renderUnavailable(result.error ?? 'Debug Recordingを開始できません。', true));
+    return;
+  }
+  changeTrackingActive = true;
+  syncStoragePolling();
+  startDebugPolling();
+  renderCurrentData();
+}
+
+async function stopDebugRecording(): Promise<void> {
+  const result = await debugSession.stop();
+  if (!result.ok) {
+    setBody(renderUnavailable(result.error ?? 'Debug Recordingを停止できません。', true));
+    return;
+  }
+  changeTrackingActive = false;
+  syncStoragePolling();
+  stopDebugPolling();
+  renderCurrentData();
+}
+
+async function clearDebugRecording(): Promise<void> {
+  const result = await debugSession.clear();
+  if (!result.ok) {
+    setBody(renderUnavailable(result.error ?? 'Debug Recordingを消去できません。', true));
+    return;
+  }
+  renderCurrentData();
+}
+
 function stopTrackingPolling(): void {
   if (trackingPollId !== undefined) window.clearInterval(trackingPollId);
   trackingPollId = undefined;
@@ -633,6 +924,26 @@ function renderCurrentData(): void {
     setBody(renderChangeTimeline((state.loadedData as ChangeTrackingSnapshot) || emptyTimeline()));
     return;
   }
+  if (state.selected === 'debug-timeline') {
+    setBody(renderDebugTimeline());
+    return;
+  }
+  if (state.selected === 'network') {
+    setBody(renderNetwork());
+    return;
+  }
+  if (state.selected === 'errors') {
+    setBody(renderErrors());
+    return;
+  }
+  if (state.selected === 'snapshots') {
+    setBody(renderSnapshots());
+    return;
+  }
+  if (state.selected === 'ai-export') {
+    setBody(renderAiExport());
+    return;
+  }
   if (state.selected === 'pinia' || state.selected === 'tanstack-query') {
     setBody(renderFrameworkState(state.loadedData as FrameworkState));
   }
@@ -663,6 +974,13 @@ async function refreshPanel(options: { background?: boolean } = {}): Promise<voi
   state.pageUrl = info.ok && info.data ? info.data.url : '';
   if (!info.ok || !info.data) {
     fail(info.error ?? 'ページ情報の取得に失敗しました。');
+    return;
+  }
+
+  if (['debug-timeline', 'network', 'errors', 'snapshots', 'ai-export'].includes(target)) {
+    await debugSession.refresh();
+    if (!isCurrent()) return;
+    finish();
     return;
   }
 

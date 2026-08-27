@@ -75,6 +75,16 @@ export class PageEvaluator {
     getPageInfo() {
         return this.evaluate(`(() => ({ url: location.href, origin: location.origin }))()`);
     }
+    getPageDetails() {
+        return this.evaluate(`(() => ({
+      page: { url: location.href, origin: location.origin, title: document.title },
+      environment: {
+        userAgent: navigator.userAgent,
+        viewport: { width: window.innerWidth, height: window.innerHeight, devicePixelRatio: window.devicePixelRatio },
+        readyState: document.readyState,
+      },
+    }))()`);
+    }
     getStorage(kind) {
         return this.evaluate(`(() => {
       const storage = window.${kind};

@@ -92,3 +92,9 @@ tr:hover td { background: color-mix(in srgb, var(--surface-alt) 65%, transparent
 .toggle-label input { accent-color: var(--accent); }
 .interval-select { border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; background: var(--bg); color: var(--text); }
 .interval-select:disabled { opacity: .55; }
+
+.filter-controls, .format-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.filter-button { border: 1px solid var(--border); border-radius: 3px; padding: 4px 8px; background: var(--bg); color: var(--text); cursor: pointer; }
+.filter-button.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 20%, var(--bg)); color: var(--text); }
+.snapshot-summary { overflow-wrap: anywhere; margin: 8px 0; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); color: var(--muted); font-size: 12px; }
+h4 { margin: 12px 0 6px; font-size: 12px; color: var(--muted); }

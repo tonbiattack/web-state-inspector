@@ -66,3 +66,13 @@ State Change Timelineが記録中で、Local StorageまたはSession Storageの�
 自動テストには、ユーザー指定間隔の再取得、取得中の重複防止、Storage以外を開いた後の抑止、Timeline記録中の700ms追従、タイマー再設定時の旧タイマー停止、パネル上の操作要素を追加した。`pnpm run verify`では16件のテストがすべて成功した。
 
 実Chrome拡張のDevTools実行コンテキストでも、UIで選択できる最短の`500 ms`設定を検証した。検査対象ページの`wsi.auto-refresh.probe`を`before-500ms`としてからAuto Refreshを開始し、650ms後に`after-500ms`へ更新した。1.6秒の待機中に自動再取得が計2回発生し、`before-500ms`と`after-500ms`の両方を取得できた。したがって、更新後の値への自動追従を確認した。
+
+## AI Debug Context 統合検証
+
+最新版の`dist/`を読み込んだChrome DevTools拡張でDebug Recordingを開始し、動作確認ページからlocalStorageの`setItem`、Fetch 200、Fetch 500、XHR POST 201、`console.error`、未処理Promise rejectionを実行した。
+
+実際の拡張コンテキストで取得したUnified Timelineは、`network-request` 3件、`network-response` 3件、`storage` 1件、`console-error` 1件、`promise-rejection` 1件を含んだ。Networkでは、Fetch 200のJSON response body、Fetch 500の`{"code":"INTERNAL_ERROR","message":"Intentional demo failure"}`、XHR POST 201のrequest/response bodyを取得できた。Fetch 500はNetwork Errorとしてstatus 500で記録された。
+
+同じ実拡張コンテキストからSnapshotを収集し、ページタイトル、localStorage 3件、Cookie 1件、IndexedDB 1件、Cache Storage 1件、および明示的診断ブリッジ経由のPinia / TanStack Queryを取得できた。収集結果から生成したMarkdownにはNetwork Errors、status 500、Storage Changes、`wsi.demo.timeline`が含まれることを確認した。
+
+`pnpm run verify`は、Network正規化・フィルタ・response body truncate・Network上限、Debug Sessionの統合Timeline・上限、Snapshot、Diff、Markdown / JSON formatter、Error収集とフック復元、既存Storage・Auto Refresh・Manifest検査を含む22テストが成功した。

@@ -45,6 +45,19 @@
       <pre id="action-preview">No tracked action yet.</pre>
     </section>
 
+    <h2>Debug Recording test actions</h2>
+    <section class="card">
+      <p>DevToolsで <code>Debug / Timeline</code> の <strong>Start Recording</strong> を押してから、Network / Errors画面で以下を確認してください。</p>
+      <p>
+        <button id="debug-fetch-ok">Fetch 200</button>
+        <button id="debug-fetch-fail">Fetch 500</button>
+        <button id="debug-xhr-post">XHR POST 201</button>
+        <button id="debug-console-error">console.error</button>
+        <button id="debug-rejection">Unhandled rejection</button>
+      </p>
+      <pre id="debug-preview">No debug action yet.</pre>
+    </section>
+
     <h2>Vue + Pinia</h2>
     <section class="card" id="vue-root">Loading Vue sample…</section>
 
@@ -90,6 +103,33 @@
       document.querySelector('#action-clear').addEventListener('click', () => {
         sessionStorage.clear();
         reportAction('clear: sessionStorage');
+      });
+
+      const reportDebug = (message) => { document.querySelector('#debug-preview').textContent = message; };
+      document.querySelector('#debug-fetch-ok').addEventListener('click', async () => {
+        const response = await fetch('/api/debug-context/ok', { headers: { 'X-Debug-Client': 'web-state-inspector-demo' } });
+        reportDebug(`Fetch 200: ${await response.text()}`);
+      });
+      document.querySelector('#debug-fetch-fail').addEventListener('click', async () => {
+        const response = await fetch('/api/debug-context/fail');
+        reportDebug(`Fetch 500: ${await response.text()}`);
+      });
+      document.querySelector('#debug-xhr-post').addEventListener('click', () => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/debug-context/echo');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onload = () => reportDebug(`XHR ${xhr.status}: ${xhr.responseText}`);
+        xhr.onerror = () => reportDebug('XHR network error');
+        xhr.send(JSON.stringify({ action: 'xhr-post', selectedCustomerId: 123 }));
+      });
+      document.querySelector('#debug-console-error').addEventListener('click', () => {
+        const error = new TypeError('Intentional console.error from demo');
+        console.error(error);
+        reportDebug(error.message);
+      });
+      document.querySelector('#debug-rejection').addEventListener('click', () => {
+        reportDebug('Unhandled Promise rejection triggered');
+        Promise.reject(new Error('Intentional unhandled rejection from demo'));
       });
 
       async function prepareIndexedDb() {
