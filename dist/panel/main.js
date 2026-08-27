@@ -1,8 +1,10 @@
 import { ChangeTracker } from './change-tracker.js';
 import { PageEvaluator } from './page-evaluator.js';
+import { StoragePollingController } from './storage-polling.js';
 const evaluator = new PageEvaluator();
 const changeTracker = new ChangeTracker(evaluator);
 let trackingPollId;
+let changeTrackingActive = false;
 const root = document.querySelector('#app');
 if (!root)
     throw new Error('Panel root was not found.');
@@ -13,7 +15,10 @@ const state = {
     pageUrl: '',
     loadedData: [],
     loading: false,
+    autoRefreshEnabled: false,
+    autoRefreshIntervalMs: 1000,
 };
+const storagePolling = new StoragePollingController(() => ({ ...state, changeTrackingActive }), () => { void refreshPanel({ background: true }); });
 const navItems = [
     { id: 'local-storage', label: 'Local Storage', group: 'Storage' },
     { id: 'session-storage', label: 'Session Storage', group: 'Storage' },
@@ -91,10 +96,50 @@ function matchesQuery(values) {
         return true;
     return values.some((value) => String(value).toLowerCase().includes(state.query));
 }
+function stopStoragePolling() {
+    storagePolling.stop();
+}
+function syncStoragePolling() {
+    storagePolling.sync();
+}
+function renderAutoRefreshControls() {
+    const controls = element('div', 'auto-refresh-controls');
+    const label = element('label', 'toggle-label');
+    const toggle = element('input');
+    toggle.type = 'checkbox';
+    toggle.checked = state.autoRefreshEnabled;
+    toggle.addEventListener('change', () => {
+        state.autoRefreshEnabled = toggle.checked;
+        syncStoragePolling();
+        if (toggle.checked)
+            void refreshPanel({ background: true });
+        renderCurrentData();
+    });
+    label.append(toggle, document.createTextNode('Auto Refresh'));
+    const intervalLabel = element('label', 'interval-label', 'Interval');
+    const interval = element('select', 'interval-select');
+    for (const milliseconds of [500, 1000, 2000, 5000]) {
+        const option = element('option');
+        option.value = String(milliseconds);
+        option.textContent = milliseconds < 1000 ? `${milliseconds} ms` : `${milliseconds / 1000} s`;
+        option.selected = milliseconds === state.autoRefreshIntervalMs;
+        interval.append(option);
+    }
+    interval.disabled = !state.autoRefreshEnabled;
+    interval.addEventListener('change', () => {
+        state.autoRefreshIntervalMs = Number(interval.value);
+        syncStoragePolling();
+    });
+    intervalLabel.append(interval);
+    const implied = !state.autoRefreshEnabled && changeTrackingActive;
+    const status = element('span', `status${state.autoRefreshEnabled || implied ? ' detected' : ''}`, state.autoRefreshEnabled ? `On · ${interval.options[interval.selectedIndex].text}` : implied ? 'On · Timeline recording' : 'Off');
+    controls.append(label, intervalLabel, status);
+    return controls;
+}
 function renderStorage(entries) {
     const section = element('section');
     const filtered = entries.filter((entry) => matchesQuery([entry.key, entry.value]));
-    section.append(element('p', 'summary', `${filtered.length} 件${state.query ? ` / ${entries.length} 件中` : ''}`));
+    section.append(renderAutoRefreshControls(), element('p', 'summary', `${filtered.length} 件${state.query ? ` / ${entries.length} 件中` : ''}`));
     if (filtered.length === 0) {
         section.append(element('div', 'empty', state.query ? '検索条件に一致する項目はありません。' : 'このStorageには項目がありません。'));
         return section;
@@ -177,6 +222,7 @@ function renderShell() {
                 if (state.selected === 'change-timeline' && item.id !== 'change-timeline')
                     stopTrackingPolling();
                 state.selected = item.id;
+                syncStoragePolling();
                 state.query = '';
                 refreshPanel();
             });
@@ -445,6 +491,8 @@ async function updateTimelineFromPage(render = true) {
         return;
     }
     state.loadedData = snapshot.data;
+    changeTrackingActive = snapshot.data.active;
+    syncStoragePolling();
     if (render && state.selected === 'change-timeline')
         renderCurrentData();
 }
@@ -464,6 +512,7 @@ async function startChangeTracking() {
     }
     await updateTimelineFromPage();
     startTrackingPolling();
+    syncStoragePolling();
 }
 async function stopChangeTracking() {
     stopTrackingPolling();
@@ -473,6 +522,7 @@ async function stopChangeTracking() {
         return;
     }
     await updateTimelineFromPage();
+    syncStoragePolling();
 }
 async function clearChangeTracking() {
     const result = await changeTracker.clear();
@@ -512,87 +562,113 @@ function renderCurrentData() {
         setBody(renderFrameworkState(state.loadedData));
     }
 }
-async function refreshPanel() {
-    state.loading = true;
-    renderCurrentData();
-    const info = await evaluator.getPageInfo();
-    state.pageUrl = info.ok ? info.data.url : '';
-    if (!info.ok || !info.data) {
+async function refreshPanel(options = {}) {
+    const target = state.selected;
+    const background = options.background ?? false;
+    const isCurrent = () => state.selected === target;
+    const finish = () => {
+        if (!isCurrent())
+            return;
+        state.loading = false;
+        renderCurrentData();
+    };
+    const fail = (message) => {
+        if (!isCurrent())
+            return;
         state.loading = false;
         updateHeader();
-        setBody(renderUnavailable(info.error ?? 'ページ情報の取得に失敗しました。', true));
+        setBody(renderUnavailable(message, true));
+    };
+    if (!background) {
+        state.loading = true;
+        renderCurrentData();
+    }
+    const info = await evaluator.getPageInfo();
+    if (!isCurrent())
+        return;
+    state.pageUrl = info.ok && info.data ? info.data.url : '';
+    if (!info.ok || !info.data) {
+        fail(info.error ?? 'ページ情報の取得に失敗しました。');
         return;
     }
-    if (state.selected === 'local-storage' || state.selected === 'session-storage') {
-        const kind = state.selected === 'local-storage' ? 'localStorage' : 'sessionStorage';
+    if (target === 'local-storage' || target === 'session-storage') {
+        const kind = target === 'local-storage' ? 'localStorage' : 'sessionStorage';
         const result = await evaluator.getStorage(kind);
-        state.loading = false;
+        if (!isCurrent())
+            return;
         if (!result.ok || !result.data) {
-            setBody(renderUnavailable(result.error ?? `${labels[state.selected]}を取得できません。`, true));
+            fail(result.error ?? `${labels[target]}を取得できません。`);
             return;
         }
         state.loadedData = result.data;
-        renderCurrentData();
+        finish();
         return;
     }
-    if (state.selected === 'cookies') {
+    if (target === 'cookies') {
         const result = await requestCookies(info.data.url);
-        state.loading = false;
+        if (!isCurrent())
+            return;
         if (!result.ok || !result.data) {
-            setBody(renderUnavailable(result.error ?? 'Cookieを取得できません。', true));
+            fail(result.error ?? 'Cookieを取得できません。');
             return;
         }
         state.loadedData = result.data;
-        renderCurrentData();
+        finish();
         return;
     }
-    if (state.selected === 'indexeddb') {
+    if (target === 'indexeddb') {
         const result = await evaluator.getIndexedDatabases();
-        state.loading = false;
+        if (!isCurrent())
+            return;
         if (!result.ok || !result.data) {
-            setBody(renderUnavailable(result.error ?? 'IndexedDBを取得できません。', true));
+            fail(result.error ?? 'IndexedDBを取得できません。');
             return;
         }
         state.loadedData = result.data;
-        renderCurrentData();
+        finish();
         return;
     }
-    if (state.selected === 'change-timeline') {
+    if (target === 'change-timeline') {
         const result = await changeTracker.getSnapshot();
-        state.loading = false;
+        if (!isCurrent())
+            return;
         if (!result.ok || !result.data) {
-            setBody(renderUnavailable(result.error ?? '変更記録を取得できません。', true));
+            fail(result.error ?? '変更記録を取得できません。');
             return;
         }
         state.loadedData = result.data;
+        changeTrackingActive = result.data.active;
         if (result.data.active)
             startTrackingPolling();
         else
             stopTrackingPolling();
-        renderCurrentData();
+        syncStoragePolling();
+        finish();
         return;
     }
-    if (state.selected === 'cache-storage') {
+    if (target === 'cache-storage') {
         const result = await evaluator.getCacheNames();
-        state.loading = false;
+        if (!isCurrent())
+            return;
         if (!result.ok || !result.data) {
-            setBody(renderUnavailable(result.error ?? 'Cache Storageを取得できません。', true));
+            fail(result.error ?? 'Cache Storageを取得できません。');
             return;
         }
         state.loadedData = result.data;
-        renderCurrentData();
+        finish();
         return;
     }
-    if (state.selected === 'pinia' || state.selected === 'tanstack-query') {
-        const kind = state.selected === 'pinia' ? 'pinia' : 'tanstackQuery';
+    if (target === 'pinia' || target === 'tanstack-query') {
+        const kind = target === 'pinia' ? 'pinia' : 'tanstackQuery';
         const result = await evaluator.getFrameworkState(kind);
-        state.loading = false;
+        if (!isCurrent())
+            return;
         if (!result.ok || !result.data) {
-            setBody(renderUnavailable(result.error ?? `${labels[state.selected]}の状態を取得できません。`, true));
+            fail(result.error ?? `${labels[target]}の状態を取得できません。`);
             return;
         }
         state.loadedData = result.data;
-        renderCurrentData();
+        finish();
     }
 }
 renderShell();

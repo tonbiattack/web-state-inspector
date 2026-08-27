@@ -56,3 +56,13 @@
 | `sessionStorage.clear` | 成功 | 消去前の`wsi.demo.tab`および`wsi.demo.session`を記録し、呼び出し元 `sample/:91:24`。 |
 
 4イベントが時刻順に取得され、いずれもStorage種別、操作、キー、変更前後、および計測フック内部ではない発生元の行番号を含んだ。`pnpm run verify`では、計測フックの変更前後、同値時の`unchanged`、`clear`の対象、外部`storage`イベント、固定長リングバッファ、Stop時のメソッド復元、UIの入口を含む12件の自動テストがすべて成功した。
+
+## 2026-08-27: Storage一覧のAuto Refresh
+
+Local StorageおよびSession Storageの一覧に、既定オフのAuto Refreshトグルと、`500 ms`、`1 s`、`2 s`、`5 s`の更新間隔を追加した。自動更新時は現在表示中のStorage一覧だけをバックグラウンド再取得し、取得中および別カテゴリへ移動済みの場合は重複更新しない。
+
+State Change Timelineが記録中で、Local StorageまたはSession Storageの一覧へ移動した場合は、Auto Refreshがオフでも`700 ms`で一覧を追従させる。記録を停止すると、この暗黙の更新も停止する。
+
+自動テストには、ユーザー指定間隔の再取得、取得中の重複防止、Storage以外を開いた後の抑止、Timeline記録中の700ms追従、タイマー再設定時の旧タイマー停止、パネル上の操作要素を追加した。`pnpm run verify`では16件のテストがすべて成功した。
+
+実Chrome拡張のDevTools実行コンテキストでも、UIで選択できる最短の`500 ms`設定を検証した。検査対象ページの`wsi.auto-refresh.probe`を`before-500ms`としてからAuto Refreshを開始し、650ms後に`after-500ms`へ更新した。1.6秒の待機中に自動再取得が計2回発生し、`before-500ms`と`after-500ms`の両方を取得できた。したがって、更新後の値への自動追従を確認した。

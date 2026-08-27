@@ -86,3 +86,9 @@ tr:hover td { background: color-mix(in srgb, var(--surface-alt) 65%, transparent
 
 .timeline-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .timeline-controls .status { margin-left: 4px; }
+
+.auto-refresh-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.toggle-label, .interval-label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.toggle-label input { accent-color: var(--accent); }
+.interval-select { border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; background: var(--bg); color: var(--text); }
+.interval-select:disabled { opacity: .55; }

@@ -17,7 +17,8 @@
 | Framework | Pinia | Experimental | アプリが明示的診断ブリッジを公開したときだけ表示。 |
 | Framework | TanStack Query | Experimental | アプリが明示的診断ブリッジを公開したときだけ表示。 |
 | UI | Search | 対応 | localStorage、sessionStorage、Cookie、IndexedDB、State Change Timelineの現在表示中データを絞り込み。 |
-| UI | Refresh | 対応 | 現在選択しているカテゴリを再取得。 |
+| UI | Refresh | 対応 | 現在選択しているカテゴリを手動で再取得。 |
+| UI | Auto Refresh | 対応 | Local Storage / Session Storageでオン・オフと更新間隔を設定。既定はオフ。 |
 
 `chrome.devtools.inspectedWindow.eval()` は、検査対象ページのJavaScript状態へアクセスできるDevTools拡張APIです。本拡張では同期的なStorage取得に利用し、取得値はJSON互換のデータとしてのみ扱います。[1]
 
@@ -67,6 +68,8 @@ DevToolsで検査対象ページを開き、**Web State Inspector** パネルを
 
 値がJSONとして解析できるlocalStorage / sessionStorageの項目は、折りたたまれた整形JSONとして表示されます。展開後に **Copy** を選ぶと、整形された値をクリップボードへコピーできます。CookieはCookie APIから取得するため、HTTPOnly属性を持つCookieもChromeの権限が許す範囲で確認できます。[2]
 
+Local StorageまたはSession Storageを開くと、一覧上部に **Auto Refresh** と **Interval** が表示されます。Auto Refreshは既定でオフです。オンにすると、`500 ms`、`1 s`、`2 s`、`5 s`から選んだ間隔で現在の一覧だけを読み取り直します。手動のRefreshも引き続き利用できます。Auto RefreshはCookie、IndexedDB、Cache Storage、Framework Stateには適用しません。
+
 IndexedDBの一覧では、データベースとObject Storeを展開し、Storeを選択すると先頭から最大100件をCursorで読み取ります。Cache Storageも同様に、Cacheを選ぶと先頭から最大100件のRequestとResponse metadataを表示します。大量のデータを無制限に取得しないため、表示件数が上限を超える場合は明示します。
 
 ## State Change Timeline
@@ -80,7 +83,7 @@ State Change Timelineは、**「このStorageはなぜ変わったのか」**を
 | `clear()` | Storage種別、消去前のキー・値（最大100件）、時刻、呼び出し元。 |
 | 他の同一origin文書による変更 | `storage`イベントを補助的に記録。発生元URLは表示できるが、発生元のJavaScriptスタックは取得できない。 |
 
-**Stop** は計測フックを元に戻して記録を停止します。**Clear** はページのStorageを変更せず、パネルの記録だけを消去します。開始前の変更は遡及できず、ページ再読み込み後は記録バッファも消えます。
+**Stop** は計測フックを元に戻して記録を停止します。**Clear** はページのStorageを変更せず、パネルの記録だけを消去します。開始前の変更は遡及できず、ページ再読み込み後は記録バッファも消えます。記録中にLocal StorageまたはSession Storageの一覧へ移動すると、Auto Refreshのオン・オフにかかわらず、イベント取得と同じ`700 ms`間隔で一覧も自動追従します。
 
 Web標準の`storage`イベントは、変更を起こした同一ページでは発火せず、同じStorage領域を共有する別文書で発火します。[7] このため、同一ページの原因追跡には`Storage.prototype.setItem`、`removeItem`、`clear`の計測フックを使用します。Web Storageでは`setItem()`、`removeItem()`、`clear()`の使用が推奨されており、`localStorage.key = value`のようなプロパティ代入は初期版の計測対象外です。[8]
 
