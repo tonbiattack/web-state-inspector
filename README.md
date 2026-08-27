@@ -13,9 +13,10 @@
 | Storage | Cookie | 対応 | Name / Value / Domain / Path / Expires / Secure / HttpOnly / SameSiteを表示。 |
 | Storage | IndexedDB | 対応 | データベース、Object Store、最大100件のレコードを表示。 |
 | Storage | Cache Storage | 対応 | Cache名、Request URL、Method、Response statusを最大100件表示。 |
+| Debug | State Change Timeline | 対応 | 記録開始後のWeb Storage変更について、操作、変更前後、時刻、実行箇所を表示。 |
 | Framework | Pinia | Experimental | アプリが明示的診断ブリッジを公開したときだけ表示。 |
 | Framework | TanStack Query | Experimental | アプリが明示的診断ブリッジを公開したときだけ表示。 |
-| UI | Search | 対応 | localStorage、sessionStorage、Cookie、IndexedDBの現在表示中データを絞り込み。 |
+| UI | Search | 対応 | localStorage、sessionStorage、Cookie、IndexedDB、State Change Timelineの現在表示中データを絞り込み。 |
 | UI | Refresh | 対応 | 現在選択しているカテゴリを再取得。 |
 
 `chrome.devtools.inspectedWindow.eval()` は、検査対象ページのJavaScript状態へアクセスできるDevTools拡張APIです。本拡張では同期的なStorage取得に利用し、取得値はJSON互換のデータとしてのみ扱います。[1]
@@ -67,6 +68,23 @@ DevToolsで検査対象ページを開き、**Web State Inspector** パネルを
 値がJSONとして解析できるlocalStorage / sessionStorageの項目は、折りたたまれた整形JSONとして表示されます。展開後に **Copy** を選ぶと、整形された値をクリップボードへコピーできます。CookieはCookie APIから取得するため、HTTPOnly属性を持つCookieもChromeの権限が許す範囲で確認できます。[2]
 
 IndexedDBの一覧では、データベースとObject Storeを展開し、Storeを選択すると先頭から最大100件をCursorで読み取ります。Cache Storageも同様に、Cacheを選ぶと先頭から最大100件のRequestとResponse metadataを表示します。大量のデータを無制限に取得しないため、表示件数が上限を超える場合は明示します。
+
+## State Change Timeline
+
+State Change Timelineは、**「このStorageはなぜ変わったのか」**を調査するための記録機能です。左側で **State Change Timeline** を選び、**Record** を押した後に対象アプリを操作してください。localStorageまたはsessionStorageが標準APIで変更されると、操作、キー、変更前後、時刻、呼び出し元スタックを時系列に表示します。記録中は約0.7秒ごとに画面へ反映されます。
+
+| 操作 | 記録する内容 |
+|---|---|
+| `setItem(key, value)` | Storage種別、キー、変更前後、時刻、呼び出し元。値が同一の場合は`unchanged`。 |
+| `removeItem(key)` | Storage種別、キー、削除前の値、削除後の`null`、呼び出し元。 |
+| `clear()` | Storage種別、消去前のキー・値（最大100件）、時刻、呼び出し元。 |
+| 他の同一origin文書による変更 | `storage`イベントを補助的に記録。発生元URLは表示できるが、発生元のJavaScriptスタックは取得できない。 |
+
+**Stop** は計測フックを元に戻して記録を停止します。**Clear** はページのStorageを変更せず、パネルの記録だけを消去します。開始前の変更は遡及できず、ページ再読み込み後は記録バッファも消えます。
+
+Web標準の`storage`イベントは、変更を起こした同一ページでは発火せず、同じStorage領域を共有する別文書で発火します。[7] このため、同一ページの原因追跡には`Storage.prototype.setItem`、`removeItem`、`clear`の計測フックを使用します。Web Storageでは`setItem()`、`removeItem()`、`clear()`の使用が推奨されており、`localStorage.key = value`のようなプロパティ代入は初期版の計測対象外です。[8]
+
+> この機能はデバッグ中の信頼できる開発ページで使ってください。記録用フックは対象ページのメインフレームへ挿入されるため、記録中のページがStorageメソッドを独自に差し替える場合、その挙動は完全には追跡できません。Cookie、IndexedDB、Cache Storage、iframe内の変更も、初期版の記録対象外です。
 
 ## 対応しているStorage
 
@@ -172,10 +190,12 @@ web-state-inspector/
 │   ├── background/service-worker.ts # Cookieの読み取り
 │   ├── panel/
 │   │   ├── main.ts                  # UIと取得制御
-│   │   └── page-evaluator.ts        # 検査対象ページでの安全な読み取り
+│   │   ├── page-evaluator.ts        # 検査対象ページでの安全な読み取り
+│   │   └── change-tracker.ts        # Web Storage変更の記録フック
 │   └── shared/types.ts
 ├── sample/index.html                # 動作確認用ページ
 ├── docs/research-decision.md        # Framework Stateの調査判断
+├── docs/change-tracking-research.md # State Change Timelineの設計判断
 ├── scripts/build.mjs                # dist組み立て
 ├── tests/                           # 静的構成の回帰検査
 ├── package.json
@@ -202,3 +222,5 @@ pnpm run verify     # 上記を順番に実行
 [4]: https://developer.mozilla.org/en-US/docs/Web/API/CacheStorage "CacheStorage | MDN Web Docs"
 [5]: https://devtools.vuejs.org/getting-started/features "Features | Vue DevTools"
 [6]: https://tanstack.com/query/latest/docs/framework/react/devtools "Devtools | TanStack Query"
+[7]: https://developer.mozilla.org/en-US/docs/Web/API/Window/storage_event "Window: storage event | MDN Web Docs"
+[8]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API/Using_the_Web_Storage_API "Using the Web Storage API | MDN Web Docs"

@@ -83,3 +83,6 @@ tr:hover td { background: color-mix(in srgb, var(--surface-alt) 65%, transparent
   .nav-button[aria-current="page"] { color: #151515; }
   th { color: #222; }
 }
+
+.timeline-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.timeline-controls .status { margin-left: 4px; }

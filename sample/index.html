@@ -33,6 +33,18 @@
       <section class="card"><h3>IndexedDB / Cache Storage</h3><pre id="async-preview">Preparing…</pre></section>
     </div>
 
+    <h2>Timeline test actions</h2>
+    <section class="card">
+      <p>DevToolsで <code>State Change Timeline</code> の <strong>Record</strong> を開始してから、以下を操作してください。</p>
+      <p>
+        <button id="action-set">localStorage.setItem</button>
+        <button id="action-update">localStorageを更新</button>
+        <button id="action-remove">localStorage.removeItem</button>
+        <button id="action-clear">sessionStorage.clear</button>
+      </p>
+      <pre id="action-preview">No tracked action yet.</pre>
+    </section>
+
     <h2>Vue + Pinia</h2>
     <section class="card" id="vue-root">Loading Vue sample…</section>
 
@@ -56,6 +68,29 @@
       document.querySelector('#local-preview').textContent = JSON.stringify(localData, null, 2);
       document.querySelector('#session-preview').textContent = JSON.stringify(sessionData, null, 2);
       document.querySelector('#cookie-preview').textContent = document.cookie;
+
+      let operationStep = 0;
+      const reportAction = (message) => { document.querySelector('#action-preview').textContent = message; };
+      document.querySelector('#action-set').addEventListener('click', () => {
+        operationStep += 1;
+        const value = JSON.stringify({ step: operationStep, action: 'created', source: 'action-set button' });
+        localStorage.setItem('wsi.demo.timeline', value);
+        reportAction(`setItem: wsi.demo.timeline = ${value}`);
+      });
+      document.querySelector('#action-update').addEventListener('click', () => {
+        operationStep += 1;
+        const value = JSON.stringify({ step: operationStep, action: 'updated', source: 'action-update button' });
+        localStorage.setItem('wsi.demo.timeline', value);
+        reportAction(`setItem (update): wsi.demo.timeline = ${value}`);
+      });
+      document.querySelector('#action-remove').addEventListener('click', () => {
+        localStorage.removeItem('wsi.demo.timeline');
+        reportAction('removeItem: wsi.demo.timeline');
+      });
+      document.querySelector('#action-clear').addEventListener('click', () => {
+        sessionStorage.clear();
+        reportAction('clear: sessionStorage');
+      });
 
       async function prepareIndexedDb() {
         await new Promise((resolve, reject) => {

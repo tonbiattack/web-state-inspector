@@ -4,6 +4,7 @@ export type NavigationId =
   | 'cookies'
   | 'indexeddb'
   | 'cache-storage'
+  | 'change-timeline'
   | 'pinia'
   | 'tanstack-query';
 
@@ -70,6 +71,40 @@ export interface InspectResult<T> {
   ok: boolean;
   data?: T;
   error?: string;
+}
+
+export type StorageAreaName = 'localStorage' | 'sessionStorage';
+export type StorageChangeOperation = 'setItem' | 'removeItem' | 'clear' | 'external-storage-event';
+
+export interface ClearedStorageEntry {
+  key: string;
+  value: string;
+}
+
+export interface StorageChangeEvent {
+  id: number;
+  timestamp: string;
+  performanceMs: number;
+  storageArea: StorageAreaName;
+  operation: StorageChangeOperation;
+  key: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  clearedEntries?: ClearedStorageEntry[];
+  externalUrl?: string;
+  stack: string[];
+  outcome: 'changed' | 'unchanged' | 'error';
+  error?: string;
+}
+
+export interface ChangeTrackerStatus {
+  active: boolean;
+  capacity: number;
+  eventCount: number;
+}
+
+export interface ChangeTrackingSnapshot extends ChangeTrackerStatus {
+  events: StorageChangeEvent[];
 }
 
 export interface PageInfo {

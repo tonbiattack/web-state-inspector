@@ -43,3 +43,16 @@
 `static/icons/` にマスター画像とChrome拡張用の16、32、48、128ピクセルPNGを追加し、Manifest V3の`icons`へ登録した。128ピクセル版を目視確認し、濃紺の背景に、コード記号を含む虫眼鏡とStorageスタックが判別できることを確認した。
 
 自動テストは既存の3件から9件へ拡充した。アイコンのManifest定義と実ファイルのPNG署名・寸法、配布物`dist/`へのコピー、要求されたパネルUI要素、サンプルの診断ブリッジ有無、`PageEvaluator`の非同期ブリッジ回収、ページ例外時のエラー処理を追加で検査する。`pnpm run verify`の最終実行では9件すべてが成功した。
+
+## 2026-08-27: State Change Timeline統合検証
+
+`dist/`を展開済み拡張として検証用Chromeへ読み込み、DevTools拡張の実行コンテキストで`ChangeTracker.start(50)`を実行した。次に、動作確認ページの4つの操作ボタンを通じて、`localStorage.setItem()`、同一キーの`setItem()`による更新、`localStorage.removeItem()`、`sessionStorage.clear()`を発生させた。
+
+| 操作 | 結果 | 記録内容 |
+|---|---:|---|
+| `localStorage.setItem`（作成） | 成功 | key `wsi.demo.timeline`、`null` → step 1 JSON、呼び出し元 `sample/:77:22`。 |
+| `localStorage.setItem`（更新） | 成功 | 同一keyのstep 1 JSON → step 2 JSON、呼び出し元 `sample/:83:22`。 |
+| `localStorage.removeItem` | 成功 | step 2 JSON → `null`、呼び出し元 `sample/:87:22`。 |
+| `sessionStorage.clear` | 成功 | 消去前の`wsi.demo.tab`および`wsi.demo.session`を記録し、呼び出し元 `sample/:91:24`。 |
+
+4イベントが時刻順に取得され、いずれもStorage種別、操作、キー、変更前後、および計測フック内部ではない発生元の行番号を含んだ。`pnpm run verify`では、計測フックの変更前後、同値時の`unchanged`、`clear`の対象、外部`storage`イベント、固定長リングバッファ、Stop時のメソッド復元、UIの入口を含む12件の自動テストがすべて成功した。

@@ -1,5 +1,8 @@
+import { ChangeTracker } from './change-tracker.js';
 import { PageEvaluator } from './page-evaluator.js';
 const evaluator = new PageEvaluator();
+const changeTracker = new ChangeTracker(evaluator);
+let trackingPollId;
 const root = document.querySelector('#app');
 if (!root)
     throw new Error('Panel root was not found.');
@@ -17,6 +20,7 @@ const navItems = [
     { id: 'cookies', label: 'Cookies', group: 'Storage' },
     { id: 'indexeddb', label: 'IndexedDB', group: 'Storage' },
     { id: 'cache-storage', label: 'Cache Storage', group: 'Storage' },
+    { id: 'change-timeline', label: 'State Change Timeline', group: 'Storage' },
     { id: 'pinia', label: 'Pinia', group: 'Framework', experimental: true },
     { id: 'tanstack-query', label: 'TanStack Query', group: 'Framework', experimental: true },
 ];
@@ -148,7 +152,7 @@ function requestCookies(url) {
     });
 }
 function isSearchable(id) {
-    return ['local-storage', 'session-storage', 'cookies', 'indexeddb'].includes(id);
+    return ['local-storage', 'session-storage', 'cookies', 'indexeddb', 'change-timeline'].includes(id);
 }
 function renderShell() {
     clear(appRoot);
@@ -170,6 +174,8 @@ function renderShell() {
             button.addEventListener('click', () => {
                 if (state.selected === item.id)
                     return;
+                if (state.selected === 'change-timeline' && item.id !== 'change-timeline')
+                    stopTrackingPolling();
                 state.selected = item.id;
                 state.query = '';
                 refreshPanel();
@@ -357,6 +363,125 @@ function renderFrameworkState(result) {
     }
     return section;
 }
+function truncate(value, length = 120) {
+    if (value === null)
+        return '—';
+    return value.length > length ? `${value.slice(0, length)}…` : value;
+}
+function emptyTimeline() {
+    return { active: false, capacity: 300, eventCount: 0, events: [] };
+}
+function renderChangeTimeline(snapshot) {
+    const section = element('section');
+    section.append(element('div', 'notice warning', 'Recordを押した後のlocalStorage / sessionStorageの標準API操作を記録します。記録はこのページ内だけに保持され、Refreshや画面遷移をまたいで保存されません。'));
+    const controls = element('div', 'timeline-controls');
+    const recordButton = element('button', 'action-button', snapshot.active ? 'Recording…' : 'Record');
+    recordButton.type = 'button';
+    recordButton.disabled = snapshot.active;
+    recordButton.addEventListener('click', () => { void startChangeTracking(); });
+    const stopButton = element('button', 'action-button', 'Stop');
+    stopButton.type = 'button';
+    stopButton.disabled = !snapshot.active;
+    stopButton.addEventListener('click', () => { void stopChangeTracking(); });
+    const clearButton = element('button', 'action-button', 'Clear');
+    clearButton.type = 'button';
+    clearButton.disabled = snapshot.eventCount === 0;
+    clearButton.addEventListener('click', () => { void clearChangeTracking(); });
+    const status = element('span', `status${snapshot.active ? ' detected' : ''}`, snapshot.active ? `Recording · ${snapshot.eventCount}/${snapshot.capacity}` : `Stopped · ${snapshot.eventCount} event(s)`);
+    controls.append(recordButton, stopButton, clearButton, status);
+    section.append(controls);
+    if (!snapshot.active) {
+        section.append(element('p', 'summary', snapshot.eventCount ? '記録は停止中です。保存済みイベントを確認するか、Recordで新しい記録を開始できます。' : 'まだ記録されていません。Recordを押してから対象アプリを操作してください。'));
+    }
+    else {
+        section.append(element('p', 'summary', '記録中です。対象アプリを操作すると、イベントが約0.7秒ごとに表示されます。'));
+    }
+    const events = snapshot.events.filter((event) => matchesQuery([
+        event.storageArea,
+        event.operation,
+        event.key ?? '',
+        event.oldValue ?? '',
+        event.newValue ?? '',
+        ...(event.stack ?? []),
+    ])).slice().reverse();
+    if (events.length === 0) {
+        section.append(element('div', 'empty', state.query ? '検索条件に一致する変更イベントはありません。' : '表示する変更イベントはありません。'));
+        return section;
+    }
+    const { table, body } = createTable(['When', 'Storage', 'Operation', 'Key', 'Before → After', 'Where']);
+    for (const event of events) {
+        const row = element('tr');
+        const values = element('td', 'value-cell');
+        const details = element('details');
+        const summary = element('summary', undefined, `${truncate(event.oldValue)}  →  ${truncate(event.newValue)}`);
+        details.append(summary);
+        const detailText = [
+            `before: ${event.oldValue ?? 'null'}`,
+            `after: ${event.newValue ?? 'null'}`,
+            event.clearedEntries ? `cleared: ${JSON.stringify(event.clearedEntries)}` : '',
+            event.error ? `error: ${event.error}` : '',
+        ].filter(Boolean).join('\\n');
+        details.append(jsonView(detailText, false));
+        values.append(details);
+        const stackCell = element('td', 'value-cell');
+        stackCell.append(element('pre', 'value-text', event.stack?.[0] ?? event.externalUrl ?? 'Unknown'));
+        row.append(element('td', undefined, new Date(event.timestamp).toLocaleTimeString()), element('td', undefined, event.storageArea), element('td', undefined, event.operation), element('td', 'key-cell', event.key ?? (event.clearedEntries ? `clear (${event.clearedEntries.length} keys)` : '—')), values, stackCell);
+        body.append(row);
+    }
+    section.append(table);
+    return section;
+}
+function stopTrackingPolling() {
+    if (trackingPollId !== undefined)
+        window.clearInterval(trackingPollId);
+    trackingPollId = undefined;
+}
+async function updateTimelineFromPage(render = true) {
+    const snapshot = await changeTracker.getSnapshot();
+    if (!snapshot.ok || !snapshot.data) {
+        stopTrackingPolling();
+        if (render)
+            setBody(renderUnavailable(snapshot.error ?? '変更記録を取得できません。', true));
+        return;
+    }
+    state.loadedData = snapshot.data;
+    if (render && state.selected === 'change-timeline')
+        renderCurrentData();
+}
+function startTrackingPolling() {
+    stopTrackingPolling();
+    trackingPollId = window.setInterval(() => {
+        if (state.selected === 'change-timeline')
+            void updateTimelineFromPage();
+    }, 700);
+}
+async function startChangeTracking() {
+    setBody(renderUnavailable('ページへStorage変更の記録フックを設定しています。'));
+    const result = await changeTracker.start();
+    if (!result.ok) {
+        setBody(renderUnavailable(result.error ?? '変更記録を開始できません。', true));
+        return;
+    }
+    await updateTimelineFromPage();
+    startTrackingPolling();
+}
+async function stopChangeTracking() {
+    stopTrackingPolling();
+    const result = await changeTracker.stop();
+    if (!result.ok) {
+        setBody(renderUnavailable(result.error ?? '変更記録を停止できません。', true));
+        return;
+    }
+    await updateTimelineFromPage();
+}
+async function clearChangeTracking() {
+    const result = await changeTracker.clear();
+    if (!result.ok) {
+        setBody(renderUnavailable(result.error ?? '変更記録を消去できません。', true));
+        return;
+    }
+    await updateTimelineFromPage();
+}
 function renderCurrentData() {
     updateHeader();
     if (state.loading) {
@@ -377,6 +502,10 @@ function renderCurrentData() {
     }
     if (state.selected === 'cache-storage') {
         setBody(renderCacheNames(state.loadedData));
+        return;
+    }
+    if (state.selected === 'change-timeline') {
+        setBody(renderChangeTimeline(state.loadedData || emptyTimeline()));
         return;
     }
     if (state.selected === 'pinia' || state.selected === 'tanstack-query') {
@@ -425,6 +554,21 @@ async function refreshPanel() {
             return;
         }
         state.loadedData = result.data;
+        renderCurrentData();
+        return;
+    }
+    if (state.selected === 'change-timeline') {
+        const result = await changeTracker.getSnapshot();
+        state.loading = false;
+        if (!result.ok || !result.data) {
+            setBody(renderUnavailable(result.error ?? '変更記録を取得できません。', true));
+            return;
+        }
+        state.loadedData = result.data;
+        if (result.data.active)
+            startTrackingPolling();
+        else
+            stopTrackingPolling();
         renderCurrentData();
         return;
     }
