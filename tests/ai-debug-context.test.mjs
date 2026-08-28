@@ -101,6 +101,23 @@ test('Networkフィルタとresponse body上限が意図どおり動作する', 
   }
 });
 
+test('NetworkCollectorは不正なHAR時刻・数値でも記録を失わずstatus 0として扱う', async () => {
+  const { NetworkCollector } = await moduleAt('build/panel/network-collector.js');
+  const api = installNetworkApi(); const received = [];
+  try {
+    const collector = new NetworkCollector((_entry, events) => received.push(events)); collector.start();
+    const malformed = request({ status: 200 });
+    malformed.startedDateTime = 'not-a-date'; malformed.time = -10; malformed.response.status = Number.NaN;
+    for (const listener of api.listeners) listener(malformed);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const entry = collector.getEntries()[0];
+    assert.equal(entry.status, 0); assert.equal(entry.durationMs, 0);
+    assert.equal(Number.isFinite(Date.parse(entry.timestamp)), true);
+    assert.equal(received[0][1].timestamp, entry.timestamp);
+    collector.stop();
+  } finally { api.restore(); }
+});
+
 test('DebugSessionはStorage・Error・Networkを同じTimelineへ集約し、上限まで保持する', async () => {
   const { DebugSession, MAX_TIMELINE_EVENTS } = await moduleAt('build/panel/debug-session.js');
   const api = installNetworkApi();

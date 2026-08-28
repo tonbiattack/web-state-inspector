@@ -35,6 +35,13 @@ function requestBody(request) {
 function normalizeHeaders(headers) {
     return (headers ?? []).map((header) => ({ name: String(header.name), value: String(header.value) }));
 }
+function normalizedTimestamp(value) {
+    return value && Number.isFinite(Date.parse(value)) ? value : new Date().toISOString();
+}
+function nonNegativeNumber(value, fallback = 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
 export function matchesNetworkFilter(entry, filter) {
     if (filter === 'all')
         return true;
@@ -85,12 +92,12 @@ export class NetworkCollector {
             return;
         const generation = this.generation;
         const id = `network-${crypto.randomUUID()}`;
-        const timestamp = request.startedDateTime ?? new Date().toISOString();
+        const timestamp = normalizedTimestamp(request.startedDateTime);
         const performanceMs = Number(this.now().toFixed(3));
         const method = request.request?.method ?? 'UNKNOWN';
         const url = request.request?.url ?? 'Unknown URL';
-        const status = Number(request.response?.status ?? 0);
-        const durationMs = Number(request.time ?? 0);
+        const status = nonNegativeNumber(request.response?.status);
+        const durationMs = nonNegativeNumber(request.time);
         const body = await responseBody(request);
         if (!this.active || generation !== this.generation)
             return;
