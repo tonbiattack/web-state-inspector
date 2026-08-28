@@ -2,7 +2,7 @@ import { formatAiContextJson, formatAiContextMarkdown, createAiDebugContext } fr
 import { ChangeTracker } from './change-tracker.js';
 import { DebugSession } from './debug-session.js';
 import { ErrorCollector } from './error-collector.js';
-import { createFocusedEventWindow, DEFAULT_CONTEXT_AFTER_MS, DEFAULT_CONTEXT_BEFORE_MS, filterActionsAroundEvent, filterErrorsAroundEvent, filterNetworkAroundEvent, filterRoutesAroundEvent, filterSelectedElementsAroundEvent, filterStorageAroundEvent, filterTimelineAroundEvent, isFailureTimelineEvent } from './focused-event-context.js';
+import { createEventContextWindow, createFocusedEventWindow, DEFAULT_CONTEXT_AFTER_MS, DEFAULT_CONTEXT_BEFORE_MS, filterActionsAroundEvent, filterErrorsAroundEvent, filterNetworkAroundEvent, filterRoutesAroundEvent, filterSelectedElementsAroundEvent, filterStorageAroundEvent, filterTimelineAroundEvent, isFailureTimelineEvent, isImportantTimelineEvent } from './focused-event-context.js';
 import { InteractionTracker } from './interaction-tracker.js';
 import { JsonExpansionState } from './json-expansion-state.js';
 import { matchesNetworkFilter } from './network-collector.js';
@@ -58,6 +58,8 @@ let changeTrackingActive = false;
 let focusedEventId: string | undefined;
 let focusedBeforeMs = DEFAULT_CONTEXT_BEFORE_MS;
 let focusedAfterMs = DEFAULT_CONTEXT_AFTER_MS;
+let selectedTimelineEventId: string | undefined;
+let timelineView: 'all' | 'important' = 'all';
 let recordings: DebugRecording[] = [];
 let normalRecordingId: string | undefined;
 let brokenRecordingId: string | undefined;
@@ -726,30 +728,59 @@ function timelineDetails(event: TimelineEvent): string {
   return event.summary;
 }
 
+function timelineIcon(event: TimelineEvent): string {
+  if (event.kind === 'user-action') return '●';
+  if (event.kind === 'route-change') return '↗';
+  if (event.kind === 'storage') return '◆';
+  if (event.kind.startsWith('network-')) return isFailureTimelineEvent(event) ? '⚠' : '⇄';
+  return isFailureTimelineEvent(event) ? '✕' : '!';
+}
+
+function renderSelectedTimelineContext(timeline: TimelineEvent[]): HTMLElement | undefined {
+  const selected = selectedTimelineEventId ? timeline.find((event) => event.id === selectedTimelineEventId) : undefined;
+  if (!selected) return undefined;
+  const window = createEventContextWindow(selected);
+  if (!window) return undefined;
+  const related = filterTimelineAroundEvent(timeline, window);
+  const section = element('section', 'event-context');
+  section.append(element('h3', undefined, 'Selected Event'), element('pre', 'value-text', `${formatTime(selected.timestamp)} ${selected.kind}\n${timelineDetails(selected)}`));
+  section.append(element('h3', undefined, 'Related Events'));
+  section.append(element('pre', 'value-text', related.map((event) => {
+    const offset = Date.parse(event.timestamp) - Date.parse(selected.timestamp);
+    const when = offset === 0 ? 'Selected' : `${offset > 0 ? '+' : ''}${(offset / 1000).toFixed(1)} sec`;
+    return `${when}  ${timelineIcon(event)} ${event.kind}  ${timelineDetails(event).replace(/\n/g, ' ')}`;
+  }).join('\n')));
+  const copy = element('button', 'action-button', 'Copy Context'); copy.type = 'button'; copy.addEventListener('click', () => { void copyEventContext(selected, copy); });
+  section.append(copy);
+  return section;
+}
+
 function renderDebugTimeline(): HTMLElement {
   const section = element('section');
-  section.append(renderDebugControls(), element('p', 'summary', 'User Action、Route Change、Storage変更、Networkの開始・完了、JavaScript Error、console.error / warn、Promise rejectionを同一時刻基準で表示します。500・通信失敗・JavaScript / Console Errorは、周辺だけのAI Export起点として選択できます。イベントの近接は因果関係を保証しません。'));
-  const events = debugSession.getTimeline().filter((event) => matchesQuery([event.kind, event.summary, timelineDetails(event)])).slice().reverse();
+  section.append(renderDebugControls(), element('p', 'summary', 'User Action、Route Change、Storage変更、Network、JavaScript Error、console.error / warnを表示します。行を選ぶと前後のRelated Eventsを確認し、そのままCopy Contextできます。時刻の近接は因果関係を保証しません。'));
+  const allTimeline = debugSession.getTimeline();
+  const filters = element('div', 'filter-controls');
+  for (const [value, label] of [['all', 'All'], ['important', 'Important']] as Array<['all' | 'important', string]>) {
+    const button = element('button', `filter-button${timelineView === value ? ' active' : ''}`, label); button.type = 'button';
+    button.addEventListener('click', () => { timelineView = value; renderCurrentData(); }); filters.append(button);
+  }
+  section.append(filters);
+  const events = allTimeline.filter((event) => timelineView === 'all' || isImportantTimelineEvent(event, allTimeline)).filter((event) => matchesQuery([event.kind, event.summary, timelineDetails(event)])).slice().reverse();
   if (events.length === 0) {
     section.append(element('div', 'empty', 'Start Recordingを押してから対象アプリを操作してください。'));
     return section;
   }
-  const { table, body } = createTable(['When', 'Type', 'Summary', 'Focused export']);
+  const { table, body } = createTable(['When', 'Type', 'Summary', 'Context']);
   for (const event of events) {
-    const row = element('tr');
-    const exportCell = element('td');
-    if (isFailureTimelineEvent(event)) {
-      const exportButton = element('button', 'action-button', 'Export around event');
-      exportButton.type = 'button';
-      exportButton.addEventListener('click', () => { focusExportOnEvent(event.id); });
-      exportCell.append(exportButton);
-    } else {
-      exportCell.textContent = '—';
-    }
-    row.append(element('td', undefined, formatTime(event.timestamp)), element('td', 'key-cell', event.kind), element('td', 'value-cell', timelineDetails(event)), exportCell);
+    const row = element('tr', `${isImportantTimelineEvent(event, allTimeline) ? 'important-event' : ''}${event.id === selectedTimelineEventId ? ' selected-event' : ''}`);
+    row.tabIndex = 0; row.addEventListener('click', () => { selectedTimelineEventId = event.id; renderCurrentData(); }); row.addEventListener('keydown', (key) => { if (key.key === 'Enter' || key.key === ' ') { key.preventDefault(); selectedTimelineEventId = event.id; renderCurrentData(); } });
+    const contextCell = element('td');
+    const copy = element('button', 'action-button', 'Copy Context'); copy.type = 'button'; copy.addEventListener('click', (click) => { click.stopPropagation(); void copyEventContext(event, copy); }); contextCell.append(copy);
+    row.append(element('td', undefined, formatTime(event.timestamp)), element('td', 'key-cell', `${timelineIcon(event)} ${event.kind}`), element('td', 'value-cell', timelineDetails(event)), contextCell);
     body.append(row);
   }
   section.append(table);
+  const context = renderSelectedTimelineContext(allTimeline); if (context) section.append(context);
   return section;
 }
 
@@ -1031,7 +1062,7 @@ function renderAiExport(): HTMLElement {
   return section;
 }
 
-async function buildAiContext(): Promise<AiDebugContext> {
+async function buildAiContext(eventContextAnchor?: TimelineEvent): Promise<AiDebugContext> {
   await debugSession.refresh();
   let selectedSnapshot = afterSnapshot ?? beforeSnapshot;
   if (!selectedSnapshot) {
@@ -1042,8 +1073,10 @@ async function buildAiContext(): Promise<AiDebugContext> {
     }
   }
   const allTimeline = debugSession.getTimeline();
-  const focusedEvent = currentFocusedEvent(allTimeline);
+  const focusedEvent = eventContextAnchor ? undefined : currentFocusedEvent(allTimeline);
   const focusedWindow = focusedEvent ? createFocusedEventWindow(focusedEvent, focusedBeforeMs, focusedAfterMs) : undefined;
+  const eventContext = eventContextAnchor ? createEventContextWindow(eventContextAnchor) : undefined;
+  const activeWindow = eventContext ?? focusedWindow;
   const [allStorageChanges, allUserActions, allRouteChanges] = await Promise.all([
     debugSession.getStorageChanges(),
     debugSession.getUserActions(),
@@ -1051,15 +1084,15 @@ async function buildAiContext(): Promise<AiDebugContext> {
   ]);
   const allNetwork = debugSession.getNetwork();
   const allErrors = debugSession.getErrors();
-  const timeline = focusedWindow ? filterTimelineAroundEvent(allTimeline, focusedWindow) : allTimeline;
-  const network = focusedWindow ? filterNetworkAroundEvent(allNetwork, focusedWindow) : allNetwork;
-  const errors = focusedWindow ? filterErrorsAroundEvent(allErrors, focusedWindow) : allErrors;
-  const storageChanges = focusedWindow ? filterStorageAroundEvent(allStorageChanges, focusedWindow) : allStorageChanges;
-  const userActions = focusedWindow ? filterActionsAroundEvent(allUserActions, focusedWindow) : allUserActions;
-  const routeChanges = focusedWindow ? filterRoutesAroundEvent(allRouteChanges, focusedWindow) : allRouteChanges;
-  const selectedElements = focusedWindow ? filterSelectedElementsAroundEvent(selectedElementSnapshots, focusedWindow) : selectedElementSnapshots;
+  const timeline = activeWindow ? filterTimelineAroundEvent(allTimeline, activeWindow) : allTimeline;
+  const network = activeWindow ? filterNetworkAroundEvent(allNetwork, activeWindow) : allNetwork;
+  const errors = activeWindow ? filterErrorsAroundEvent(allErrors, activeWindow) : allErrors;
+  const storageChanges = activeWindow ? filterStorageAroundEvent(allStorageChanges, activeWindow) : allStorageChanges;
+  const userActions = activeWindow ? filterActionsAroundEvent(allUserActions, activeWindow) : allUserActions;
+  const routeChanges = activeWindow ? filterRoutesAroundEvent(allRouteChanges, activeWindow) : allRouteChanges;
+  const selectedElements = activeWindow ? filterSelectedElementsAroundEvent(selectedElementSnapshots, activeWindow) : selectedElementSnapshots;
   const fullSession = debugSession.getStatus();
-  const session = focusedWindow ? {
+  const session = activeWindow ? {
     ...fullSession,
     eventCount: timeline.length,
     networkCount: network.length,
@@ -1067,12 +1100,12 @@ async function buildAiContext(): Promise<AiDebugContext> {
     userActionCount: userActions.length,
     routeChangeCount: routeChanges.length,
   } : fullSession;
-  const diff = !focusedWindow && beforeSnapshot && afterSnapshot ? diffSnapshots(beforeSnapshot, afterSnapshot) : undefined;
+  const diff = !activeWindow && beforeSnapshot && afterSnapshot ? diffSnapshots(beforeSnapshot, afterSnapshot) : undefined;
   return createAiDebugContext({
-    page: focusedWindow ? selectedSnapshot?.page : undefined,
-    environment: focusedWindow ? selectedSnapshot?.environment : undefined,
-    before: focusedWindow ? undefined : beforeSnapshot,
-    after: focusedWindow ? undefined : selectedSnapshot,
+    page: activeWindow ? selectedSnapshot?.page : undefined,
+    environment: activeWindow ? selectedSnapshot?.environment : undefined,
+    before: activeWindow ? undefined : beforeSnapshot,
+    after: activeWindow ? undefined : selectedSnapshot,
     diff,
     network,
     errors,
@@ -1084,6 +1117,7 @@ async function buildAiContext(): Promise<AiDebugContext> {
     selectedElements,
     reproductionNotes: normalizeReproductionNotes(reproductionNotes),
     focusedEvent: focusedWindow,
+    eventContext,
     comparison: recordingComparison,
   });
 }
@@ -1093,6 +1127,14 @@ async function copyForAi(button: HTMLButtonElement): Promise<void> {
   button.textContent = 'Preparing…';
   const context = await buildAiContext();
   await copyText(exportFormat === 'markdown' ? formatAiContextMarkdown(context) : formatAiContextJson(context), button);
+  button.disabled = false;
+}
+
+async function copyEventContext(event: TimelineEvent, button: HTMLButtonElement): Promise<void> {
+  button.disabled = true;
+  button.textContent = 'Preparing…';
+  const context = await buildAiContext(event);
+  await copyText(formatAiContextMarkdown(context), button);
   button.disabled = false;
 }
 

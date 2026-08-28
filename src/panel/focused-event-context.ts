@@ -31,6 +31,11 @@ export function isFailureTimelineEvent(event: TimelineEvent): boolean {
 
 export function createFocusedEventWindow(anchor: TimelineEvent, beforeMs = DEFAULT_CONTEXT_BEFORE_MS, afterMs = DEFAULT_CONTEXT_AFTER_MS): FocusedEventWindow | undefined {
   if (!isFailureTimelineEvent(anchor)) return undefined;
+  return createEventContextWindow(anchor, beforeMs, afterMs);
+}
+
+/** A non-diagnostic context window used by the Timeline's Copy Context action. */
+export function createEventContextWindow(anchor: TimelineEvent, beforeMs = DEFAULT_CONTEXT_BEFORE_MS, afterMs = DEFAULT_CONTEXT_AFTER_MS): FocusedEventWindow | undefined {
   const anchorMs = timestampMs(anchor.timestamp);
   if (anchorMs === undefined) return undefined;
   const safeBeforeMs = clampWindowMs(beforeMs, DEFAULT_CONTEXT_BEFORE_MS);
@@ -42,6 +47,16 @@ export function createFocusedEventWindow(anchor: TimelineEvent, beforeMs = DEFAU
     startTimestamp: new Date(anchorMs - safeBeforeMs).toISOString(),
     endTimestamp: new Date(anchorMs + safeAfterMs).toISOString(),
   };
+}
+
+export function isImportantTimelineEvent(event: TimelineEvent, timeline: TimelineEvent[]): boolean {
+  if (isFailureTimelineEvent(event) || event.kind === 'storage' || event.kind === 'route-change') return true;
+  if (event.kind !== 'user-action') return false;
+  const eventMs = timestampMs(event.timestamp);
+  return eventMs !== undefined && timeline.some((candidate) => {
+    const candidateMs = timestampMs(candidate.timestamp);
+    return candidateMs !== undefined && candidateMs >= eventMs && candidateMs - eventMs <= 1_500 && (isFailureTimelineEvent(candidate) || candidate.kind === 'storage');
+  });
 }
 
 export function filterTimelineAroundEvent(events: TimelineEvent[], window: FocusedEventWindow): TimelineEvent[] {

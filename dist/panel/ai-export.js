@@ -81,6 +81,7 @@ export function createAiDebugContext(args) {
         selectedElements: args.selectedElements ?? [],
         reproductionNotes: args.reproductionNotes ?? { expectedResult: '', actualResult: '', reproductionSteps: '', additionalNotes: '' },
         focusedEvent: args.focusedEvent,
+        eventContext: args.eventContext,
         comparison: args.comparison,
     };
 }
@@ -106,6 +107,7 @@ export function formatAiContextMarkdown(context) {
         ...(divergence ? ['## First Divergence', `Time: ${divergence.timestamp}\n\nKey: ${divergence.key}\n\nNormal:\n\n${code(divergence.normal)}\n\nBroken:\n\n${code(divergence.broken)}`] : []),
         ...(comparison?.eventChains.length ? ['## Possibly Related Event Chains', comparison.eventChains.map((chain) => `### Event Chain #${chain.id}\n\n${chain.events.map((event) => eventLine(event)).join('\n\n↓\n\n')}`).join('\n\n')] : []),
         ...(context.focusedEvent ? ['## Focused Failure Window', formatFocusedEvent(context.focusedEvent, context)] : []),
+        ...(context.eventContext ? ['## Selected Event Context', formatFocusedEvent(context.eventContext, context)] : []),
         '## JavaScript and Console Events',
         context.errors.length ? context.errors.map(formatError).join('\n\n') : 'No JavaScript or console events recorded.',
         '## Network Errors',

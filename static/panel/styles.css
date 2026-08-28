@@ -86,6 +86,11 @@ tr:hover td { background: color-mix(in srgb, var(--surface-alt) 65%, transparent
 
 .timeline-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .timeline-controls .status { margin-left: 4px; }
+.important-event { background: rgba(214, 132, 0, .13); }
+.important-event .key-cell { font-weight: 700; }
+.selected-event { outline: 2px solid var(--accent); outline-offset: -2px; }
+tr[tabindex] { cursor: pointer; }
+.event-context { margin-top: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-alt); }
 
 .auto-refresh-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
 .toggle-label, .interval-label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
