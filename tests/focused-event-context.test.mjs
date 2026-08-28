@@ -68,3 +68,18 @@ test('失敗イベントでない選択と解釈不能な時刻は限定Export�
   assert.equal(createFocusedEventWindow(action), undefined);
   assert.equal(createFocusedEventWindow(invalidFailure), undefined);
 });
+
+test('Timeline contextは任意イベントを中心にし、Importantは失敗直前の操作を残す', async () => {
+  const { createEventContextWindow, filterTimelineAroundEvent, isImportantTimelineEvent } = await moduleAt('build/panel/focused-event-context.js');
+  const click = timelineEvent('click', '2026-08-28T00:00:08.700Z', 'user-action', { actionType: 'click', target: { selector: 'button.detail' } });
+  const storage = timelineEvent('storage', '2026-08-28T00:00:09.000Z', 'storage', { storage: {} });
+  const failure = timelineEvent('failure', '2026-08-28T00:00:10.000Z', 'network-response', { requestId: 'n', method: 'GET', url: '/api', status: 500, durationMs: 1 });
+  const normal = timelineEvent('normal', '2026-08-28T00:00:12.500Z');
+  const timeline = [click, storage, failure, normal];
+  const window = createEventContextWindow(click, 0, 2000);
+  assert.deepEqual(filterTimelineAroundEvent(timeline, window).map((event) => event.id), ['click', 'storage', 'failure']);
+  assert.equal(isImportantTimelineEvent(click, timeline), true);
+  assert.equal(isImportantTimelineEvent(storage, timeline), true);
+  assert.equal(isImportantTimelineEvent(failure, timeline), true);
+  assert.equal(isImportantTimelineEvent(normal, timeline), false);
+});

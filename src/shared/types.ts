@@ -332,6 +332,7 @@ export interface AiDebugContext {
   selectedElements: SelectedElementSnapshot[];
   reproductionNotes: ReproductionNotes;
   focusedEvent?: FocusedEventContext;
+  eventContext?: FocusedEventContext;
   comparison?: RecordingComparison;
 }
 

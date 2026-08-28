@@ -60,6 +60,8 @@ Route ChangeはVue RouterやReact Routerの内部APIを使いません。標準H
 
 Unified Timelineは**ISO 8601 timestamp**で並べます。ページ側の計測フックとDevTools Network APIの`performance.now()`は同一原点を共有しないため、`performanceMs`は表示順の判定に使いません。同一時刻や近接時刻は、操作と後続イベントの厳密な因果関係を証明するものではありません。
 
+Timelineの **Important** を選ぶと、失敗したNetwork、JavaScript / Console Error、Storage変更、Route Changeと、その直前1.5秒以内のUser Actionだけを表示します。各行を選ぶと、選択イベントの前5秒・後2秒の **Related Events** を同じ画面で確認できます。**Copy Context** はその時間窓のTimeline、Network、Error、Storage、RouteをMarkdownとしてクリップボードにコピーするため、AI Export画面へ移動せずにAIへ渡せます。
+
 `storage`イベントは変更を起こした同一ページではなく、同じStorage領域を共有する別文書で発火します。[4] そのため、同一ページでの原因追跡には、Record中に`Storage.prototype.setItem`、`removeItem`、`clear`を計測する方式を使用します。`localStorage.key = value`のようなプロパティ代入は、この初期版の追跡対象外です。
 
 ### 正常・異常Recordingの比較
@@ -119,6 +121,8 @@ Markdownの章は、AIが再現と障害の事実を先に読めるよう、次�
 | 9 | Current State | 現在のPage、Environment、記録件数、選択DOM Snapshot。 |
 
 Recording比較を実行済みの場合は、`Debug Summary`、`First Divergence`、`Possibly Related Event Chains`、`Network Differences`を再現メモの直後に加えます。これにより、AIへ渡す情報は「最初に正常系と違った地点」を先頭側に置けます。
+
+Network Differencesは、query parameter、request / response header、request / response bodyをJSONとして解釈できる場合、`responseBody.customerId` のようなfield pathごとに `- normal` / `+ broken` 形式で表示します。大きなDiffエディタは追加せず、比較画面で差があるフィールドだけを確認できます。
 
 Timeline上で、あるUser Actionの**後0〜1.5秒**に起きたイベントには`[possibly related to …]`を補助表示します。この表示はISO timestampの時間近接だけに基づくものであり、因果関係を示すものではありません。時刻を解釈できないイベントには表示しません。
 

@@ -18,6 +18,10 @@ export function isFailureTimelineEvent(event) {
 export function createFocusedEventWindow(anchor, beforeMs = DEFAULT_CONTEXT_BEFORE_MS, afterMs = DEFAULT_CONTEXT_AFTER_MS) {
     if (!isFailureTimelineEvent(anchor))
         return undefined;
+    return createEventContextWindow(anchor, beforeMs, afterMs);
+}
+/** A non-diagnostic context window used by the Timeline's Copy Context action. */
+export function createEventContextWindow(anchor, beforeMs = DEFAULT_CONTEXT_BEFORE_MS, afterMs = DEFAULT_CONTEXT_AFTER_MS) {
     const anchorMs = timestampMs(anchor.timestamp);
     if (anchorMs === undefined)
         return undefined;
@@ -30,6 +34,17 @@ export function createFocusedEventWindow(anchor, beforeMs = DEFAULT_CONTEXT_BEFO
         startTimestamp: new Date(anchorMs - safeBeforeMs).toISOString(),
         endTimestamp: new Date(anchorMs + safeAfterMs).toISOString(),
     };
+}
+export function isImportantTimelineEvent(event, timeline) {
+    if (isFailureTimelineEvent(event) || event.kind === 'storage' || event.kind === 'route-change')
+        return true;
+    if (event.kind !== 'user-action')
+        return false;
+    const eventMs = timestampMs(event.timestamp);
+    return eventMs !== undefined && timeline.some((candidate) => {
+        const candidateMs = timestampMs(candidate.timestamp);
+        return candidateMs !== undefined && candidateMs >= eventMs && candidateMs - eventMs <= 1_500 && (isFailureTimelineEvent(candidate) || candidate.kind === 'storage');
+    });
 }
 export function filterTimelineAroundEvent(events, window) {
     const startMs = timestampMs(window.startTimestamp);
