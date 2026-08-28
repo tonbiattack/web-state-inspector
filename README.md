@@ -179,26 +179,47 @@ JSON出力は同じ情報を`page`、`environment`、`session`、`snapshots`、`
 
 Chrome DevToolsまたはCDPを操作できるAIエージェントは、記録中のページConsoleから読み取り専用Bridgeを呼び出せます。手動の **Copy for AI** は引き続き利用できますが、AIが必要な情報だけを機械可読形式で取得する用途にはBridgeが適しています。
 
+MCP Serverは不要です。AIがDevTools/CDPでページConsoleを評価できる環境であれば、そのまま `window.__WEB_STATE_INSPECTOR__` を使えます。
+
 ```js
 window.__WEB_STATE_INSPECTOR__.version
 // "1.0"
+
+window.__WEB_STATE_INSPECTOR__.isAvailable()
+// true
 
 await window.__WEB_STATE_INSPECTOR__.getSummary()
 await window.__WEB_STATE_INSPECTOR__.getNetworkErrors({ limit: 10 })
 ```
 
-公開APIは `getSummary()`、`getErrors({ limit })`、`getNetworkErrors({ limit })`、`getTimeline({ limit, eventTypes })` です。`limit` は既定50、最大200です。Timelineの `eventTypes` は `user-action`、`route-change`、`storage-change`、`network`、`error` を指定できます。Bridgeは記録が停止中なら `NOT_RECORDING`、Extensionから5秒以内に応答がない場合は `WEB_STATE_INSPECTOR_TIMEOUT` を返します。
+公開APIは `getSummary()`、`getErrors({ limit })`、`getNetworkErrors({ limit })`、`getTimeline({ limit, eventTypes })` です。`limit` は既定50、最大200です。Timelineの `eventTypes` は `user-action`、`route-change`、`storage-change`、`network`、`error` を指定できます。Bridgeは記録が停止中なら `NOT_RECORDING`（`Debug Recording is not running. Open Web State Inspector and start recording before requesting debug data.`）、Extensionから5秒以内に応答がない場合は `WEB_STATE_INSPECTOR_TIMEOUT` を返します。
 
 BridgeはページのStorage・Cookie・DOM・Networkを操作せず、拡張がすでに保持している記録だけを要求ごとに返します。Timeline、Network body、Cookie等をページの`window`へコピーして常駐させません。既存の明示的Pinia/TanStack Query診断ブリッジがあるページでは、そのAPIを置き換えずに拡張します。
 
-AIには次の調査順を推奨します。
+### 推奨調査フロー（AI）
+
+AIには次の調査順を推奨します。最初から大量Timelineを取得せず、Summaryで必要な分岐だけ進めます。
 
 1. `getSummary()` で記録の有無と失敗件数を確認する。
-2. エラーがあれば `getErrors()` を呼ぶ。
-3. Network Errorがあれば `getNetworkErrors()` を呼ぶ。
+2. `networkErrors > 0` なら `getNetworkErrors()` を呼ぶ。
+3. `javascriptErrors > 0` なら `getErrors()` を呼ぶ。
 4. 原因候補の前後を確認するため `getTimeline({ limit: 30 })` を呼ぶ。
 
+`getSummary()` は小さいレスポンスに保ち、件数に加えて `firstNetworkError` / `firstJavaScriptError` / `firstSuspiciousEvent` の最小ヒント（timestamp/kind/summary）だけ返します。巨大なrequest/response bodyはSummaryに含みません。
+
 例えば500を見つけた後、Timelineで直前のクリックと`sessionStorage`変更を確認できます。BridgeはMCP Server、HTTP/WebSocket Server、AIからのRecording開始、ページ操作、リアルタイムストリーミングを提供しません。
+
+### AIへ渡すプロンプト例
+
+```text
+現在開いているChromeの画面で不具合を調査してください。
+Web State Inspectorが利用可能な場合は、window.__WEB_STATE_INSPECTOR__ を確認してください。
+まず getSummary() を実行し、
+必要に応じて getNetworkErrors()、getErrors()、getTimeline() を使ってください。
+最初から大量のTimelineを取得せず、Summaryから必要な情報を段階的に調査してください。
+原因を断定できない場合は、
+確認できた事実と推測を分けて説明してください。
+```
 
 ### 失敗イベント周辺だけのExport
 

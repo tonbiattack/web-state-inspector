@@ -11,11 +11,11 @@ const request = (method, params) => ({ source: 'web-state-inspector-page', type:
 
 test('AI bridge summary, limits, filters, and invalid methods are handled without page state', async () => {
   const { handleBridgeRequest } = await handler(); const state = source();
-  const summary = await handleBridgeRequest(request('getSummary'), state); assert.equal(summary.data.networkErrors, 1); assert.equal(summary.data.storageChanges, 1);
+  const summary = await handleBridgeRequest(request('getSummary'), state); assert.equal(summary.data.networkErrors, 1); assert.equal(summary.data.storageChanges, 1); assert.equal(summary.data.firstNetworkError.kind, 'network-response'); assert.equal(summary.data.firstJavaScriptError.kind, 'console-error'); assert.equal(summary.data.firstSuspiciousEvent.kind, 'network-response');
   const errors = await handleBridgeRequest(request('getErrors', { limit: 2 }), state); assert.equal(errors.data.length, 2);
   const network = await handleBridgeRequest(request('getNetworkErrors', { limit: 20 }), state); assert.equal(network.data.length, 1); assert.equal(network.data[0].status, 500);
   const timeline = await handleBridgeRequest(request('getTimeline', { limit: 1, eventTypes: ['network'] }), state); assert.equal(timeline.data.length, 1); assert.equal(timeline.data[0].kind, 'network-response');
   const invalid = await handleBridgeRequest(request('nope'), state); assert.equal(invalid.error.code, 'UNKNOWN_METHOD');
   const badFilter = await handleBridgeRequest(request('getTimeline', { eventTypes: ['nope'] }), state); assert.equal(badFilter.error.code, 'INVALID_REQUEST');
-  const stopped = await handleBridgeRequest(request('getSummary'), source(false)); assert.equal(stopped.error.code, 'NOT_RECORDING');
+  const stopped = await handleBridgeRequest(request('getSummary'), source(false)); assert.equal(stopped.error.code, 'NOT_RECORDING'); assert.match(stopped.error.message, /start recording/i);
 });
