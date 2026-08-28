@@ -107,8 +107,10 @@ export function findSuspiciousEvents(recording, divergence) {
     add(events.find((event) => event.kind === 'network-response' && event.status >= 400), 'First HTTP 4xx');
     add(events.find((event) => event.kind === 'network-response' && event.status === 0), 'First status 0');
     add(events.find((event) => ['javascript-error', 'promise-rejection', 'console-error'].includes(event.kind)), 'First JavaScript or console error');
-    if (divergence)
-        add(events.find((event) => event.timestamp >= divergence.timestamp), 'First difference from normal recording');
+    if (divergence) {
+        const divergenceMs = time(divergence.timestamp);
+        add(events.find((event) => time(event.timestamp) >= divergenceMs), 'First difference from normal recording');
+    }
     return output;
 }
 export function compareRecordings(normal, broken) {
