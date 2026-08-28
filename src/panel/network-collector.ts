@@ -66,6 +66,7 @@ export function matchesNetworkFilter(entry: NetworkEntry, filter: NetworkFilter)
 
 export class NetworkCollector {
   private active = false;
+  private generation = 0;
   private entries: NetworkEntry[] = [];
   private readonly listener = (request: unknown) => { void this.record(request as HarLikeRequest); };
 
@@ -77,17 +78,20 @@ export class NetworkCollector {
   start(): void {
     if (this.active) return;
     this.entries = [];
+    this.generation += 1;
     this.active = true;
     chrome.devtools.network.onRequestFinished.addListener(this.listener);
   }
 
   stop(): void {
     if (!this.active) return;
+    this.generation += 1;
     this.active = false;
     chrome.devtools.network.onRequestFinished.removeListener(this.listener);
   }
 
   clear(): void {
+    this.generation += 1;
     this.entries = [];
   }
 
@@ -101,6 +105,7 @@ export class NetworkCollector {
 
   private async record(request: HarLikeRequest): Promise<void> {
     if (!this.active) return;
+    const generation = this.generation;
     const id = `network-${crypto.randomUUID()}`;
     const timestamp = request.startedDateTime ?? new Date().toISOString();
     const performanceMs = Number(this.now().toFixed(3));
@@ -109,7 +114,7 @@ export class NetworkCollector {
     const status = Number(request.response?.status ?? 0);
     const durationMs = Number(request.time ?? 0);
     const body = await responseBody(request);
-    if (!this.active) return;
+    if (!this.active || generation !== this.generation) return;
     const entry: NetworkEntry = {
       id,
       timestamp,

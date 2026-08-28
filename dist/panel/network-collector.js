@@ -48,6 +48,7 @@ export class NetworkCollector {
     onEntry;
     now;
     active = false;
+    generation = 0;
     entries = [];
     listener = (request) => { void this.record(request); };
     constructor(onEntry, now = () => performance.now()) {
@@ -58,16 +59,19 @@ export class NetworkCollector {
         if (this.active)
             return;
         this.entries = [];
+        this.generation += 1;
         this.active = true;
         chrome.devtools.network.onRequestFinished.addListener(this.listener);
     }
     stop() {
         if (!this.active)
             return;
+        this.generation += 1;
         this.active = false;
         chrome.devtools.network.onRequestFinished.removeListener(this.listener);
     }
     clear() {
+        this.generation += 1;
         this.entries = [];
     }
     getEntries() {
@@ -79,6 +83,7 @@ export class NetworkCollector {
     async record(request) {
         if (!this.active)
             return;
+        const generation = this.generation;
         const id = `network-${crypto.randomUUID()}`;
         const timestamp = request.startedDateTime ?? new Date().toISOString();
         const performanceMs = Number(this.now().toFixed(3));
@@ -87,7 +92,7 @@ export class NetworkCollector {
         const status = Number(request.response?.status ?? 0);
         const durationMs = Number(request.time ?? 0);
         const body = await responseBody(request);
-        if (!this.active)
+        if (!this.active || generation !== this.generation)
             return;
         const entry = {
             id,

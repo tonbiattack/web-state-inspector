@@ -728,7 +728,12 @@ function renderSnapshots() {
         renderCurrentData();
     } });
     controls.append(before, after, selected, diff);
-    section.append(labels, controls, renderSnapshotSummary('Before', beforeSnapshot), renderSnapshotSummary('After', afterSnapshot), renderSelectedElementSnapshots());
+    section.append(labels, controls, renderSnapshotSummary('Before', beforeSnapshot), renderSnapshotSummary('After', afterSnapshot));
+    const collectionErrors = [...(beforeSnapshot?.collectionErrors ?? []), ...(afterSnapshot?.collectionErrors ?? [])];
+    if (collectionErrors.length) {
+        section.append(renderUnavailable(`Snapshotの一部を取得できませんでした。${collectionErrors.join(' / ')}`, true));
+    }
+    section.append(renderSelectedElementSnapshots());
     if (!currentDiff) {
         section.append(element('p', 'summary', 'Capture Before後に対象アプリを操作し、Capture Afterを押してからShow Diffを選択してください。'));
         return section;

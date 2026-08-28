@@ -20,6 +20,7 @@ export class InteractionTracker {
       state.nextActionId = 1;
       state.nextRouteId = 1;
       state.inputTimers = new WeakMap();
+      state.pendingInputTimers = new Set();
       state.lastUrl = location.href;
       const shortText = (value, length = 160) => String(value || '').replace(/\\s+/g, ' ').trim().slice(0, length);
       const selector = (target) => {
@@ -88,14 +89,26 @@ export class InteractionTracker {
         const actionType = event.type === 'focusin' ? 'focus' : event.type === 'focusout' ? 'blur' : event.type;
         if (event.type === 'input') {
           const prior = state.inputTimers.get(event.target);
-          if (prior) clearTimeout(prior);
-          const timer = setTimeout(() => { state.inputTimers.delete(event.target); recordAction('input', event.target); }, ${INPUT_DEBOUNCE_MS});
+          if (prior !== undefined) {
+            clearTimeout(prior);
+            state.pendingInputTimers.delete(prior);
+          }
+          const timer = setTimeout(() => {
+            state.inputTimers.delete(event.target);
+            state.pendingInputTimers.delete(timer);
+            recordAction('input', event.target);
+          }, ${INPUT_DEBOUNCE_MS});
+          state.pendingInputTimers.add(timer);
           state.inputTimers.set(event.target, timer);
           return;
         }
         if (event.type === 'change') {
           const prior = state.inputTimers.get(event.target);
-          if (prior) { clearTimeout(prior); state.inputTimers.delete(event.target); }
+          if (prior !== undefined) {
+            clearTimeout(prior);
+            state.pendingInputTimers.delete(prior);
+            state.inputTimers.delete(event.target);
+          }
         }
         recordAction(actionType, event.target, event.type === 'keydown' ? event.key : undefined);
       };
@@ -143,6 +156,9 @@ export class InteractionTracker {
     return this.evaluator.evaluate(`(() => {
       const state = window[Symbol.for(${JSON.stringify(INTERACTION_TRACKER_SYMBOL)})];
       if (!state) return { active: false, actionCount: 0, routeCount: 0, actions: [], routes: [] };
+      for (const timer of state.pendingInputTimers ?? []) clearTimeout(timer);
+      state.pendingInputTimers?.clear();
+      state.inputTimers = new WeakMap();
       state.actions = [];
       state.routes = [];
       state.nextActionId = 1;
@@ -156,6 +172,9 @@ export class InteractionTracker {
       const state = window[Symbol.for(${JSON.stringify(INTERACTION_TRACKER_SYMBOL)})];
       if (!state) return { active: false, actionCount: 0, routeCount: 0, actions: [], routes: [] };
       if (state.active) {
+        for (const timer of state.pendingInputTimers ?? []) clearTimeout(timer);
+        state.pendingInputTimers?.clear();
+        state.inputTimers = new WeakMap();
         for (const type of ['click', 'input', 'change', 'submit', 'focusin', 'focusout', 'keydown']) document.removeEventListener(type, state.actionListener, true);
         window.removeEventListener('popstate', state.popstateListener);
         window.removeEventListener('hashchange', state.hashchangeListener);

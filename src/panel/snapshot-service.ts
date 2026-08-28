@@ -16,8 +16,11 @@ function entriesAsObject(entries: StorageEntry[]): Record<string, string> {
 
 function comparableSnapshot(snapshot: DebugSnapshot): Record<string, unknown> {
   return {
+    page: snapshot.page,
+    environment: snapshot.environment,
     localStorage: entriesAsObject(snapshot.localStorage),
     sessionStorage: entriesAsObject(snapshot.sessionStorage),
+    cookies: snapshot.cookies,
     pinia: snapshot.pinia.detected ? snapshot.pinia.data ?? null : null,
     tanstackQuery: snapshot.tanstackQuery.detected ? snapshot.tanstackQuery.data ?? null : null,
     indexedDb: snapshot.indexedDb,
@@ -82,6 +85,13 @@ export class SnapshotService {
     ]);
     const names = cacheNames.ok && cacheNames.data ? cacheNames.data.slice(0, MAX_CACHE_METADATA) : [];
     const cacheResults = await Promise.all(names.map((name) => this.evaluator.getCacheEntries(name, 1)));
+    const subResults = [localStorage, sessionStorage, cookies, indexedDb, cacheNames, pinia, tanstackQuery];
+    const collectionErrors = subResults
+      .filter((result) => !result.ok)
+      .map((result) => result.error ?? 'Unknown collection error.');
+    if (collectionErrors.length === subResults.length) {
+      return { ok: false, error: `Snapshot collection failed: ${collectionErrors.join(' / ')}` };
+    }
     return {
       ok: true,
       data: {
@@ -99,6 +109,7 @@ export class SnapshotService {
           : { name: names[index], totalEntries: 0, truncated: false, error: result.error ?? 'Cache metadata unavailable.' }),
         pinia: pinia.ok && pinia.data ? pinia.data : fallbackFramework('Pinia'),
         tanstackQuery: tanstackQuery.ok && tanstackQuery.data ? tanstackQuery.data : fallbackFramework('TanStack Query'),
+        collectionErrors: collectionErrors.length ? collectionErrors : undefined,
       },
     };
   }

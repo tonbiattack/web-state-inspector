@@ -281,6 +281,7 @@ export interface DebugSnapshot {
   cacheStorage: Array<{ name: string; totalEntries: number; truncated: boolean; error?: string }>;
   pinia: FrameworkState;
   tanstackQuery: FrameworkState;
+  collectionErrors?: string[];
 }
 
 export interface DiffEntry {
