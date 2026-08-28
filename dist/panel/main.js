@@ -7,6 +7,7 @@ import { InteractionTracker } from './interaction-tracker.js';
 import { JsonExpansionState } from './json-expansion-state.js';
 import { matchesNetworkFilter } from './network-collector.js';
 import { compareRecordings } from './recording-analysis.js';
+import { handleBridgeRequest } from '../bridge/bridge-handler.js';
 import { PageEvaluator } from './page-evaluator.js';
 import { emptyReproductionNotes, normalizeReproductionNotes } from './reproduction-notes.js';
 import { SelectedElementService } from './selected-element-service.js';
@@ -43,6 +44,21 @@ const root = document.querySelector('#app');
 if (!root)
     throw new Error('Panel root was not found.');
 const appRoot = root;
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    const envelope = message;
+    if (envelope?.type !== 'WEB_STATE_INSPECTOR_BRIDGE_REQUEST' || !envelope.request || sender.tab?.id !== chrome.devtools.inspectedWindow.tabId)
+        return;
+    void handleBridgeRequest(envelope.request, {
+        getStatus: () => debugSession.getStatus(),
+        getUrl: () => state.pageUrl,
+        getErrors: () => debugSession.getErrors(),
+        getNetwork: () => debugSession.getNetwork(),
+        getTimeline: () => debugSession.getTimeline(),
+        getStorageChanges: () => debugSession.getStorageChanges(),
+        getSnapshotCount: () => Number(Boolean(beforeSnapshot)) + Number(Boolean(afterSnapshot)),
+    }).then(sendResponse).catch(() => sendResponse({ source: 'web-state-inspector-extension', type: 'response', requestId: envelope.request.requestId, success: false, error: { code: 'INVALID_REQUEST', message: 'Bridge request could not be processed.' } }));
+    return true;
+});
 const state = {
     selected: 'local-storage',
     query: '',

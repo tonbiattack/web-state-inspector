@@ -171,6 +171,31 @@ Status: 500 Internal Server Error
 
 JSON出力は同じ情報を`page`、`environment`、`session`、`snapshots`、`network`、`errors`、`storageChanges`、`timeline`、`userActions`、`routeChanges`、`selectedElements`、`reproductionNotes`、限定Export時の`focusedEvent`のキーで保持します。AIサービスへ送信する処理は一切ありません。
 
+## AI / CDP Integration
+
+Chrome DevToolsまたはCDPを操作できるAIエージェントは、記録中のページConsoleから読み取り専用Bridgeを呼び出せます。手動の **Copy for AI** は引き続き利用できますが、AIが必要な情報だけを機械可読形式で取得する用途にはBridgeが適しています。
+
+```js
+window.__WEB_STATE_INSPECTOR__.version
+// "1.0"
+
+await window.__WEB_STATE_INSPECTOR__.getSummary()
+await window.__WEB_STATE_INSPECTOR__.getNetworkErrors({ limit: 10 })
+```
+
+公開APIは `getSummary()`、`getErrors({ limit })`、`getNetworkErrors({ limit })`、`getTimeline({ limit, eventTypes })` です。`limit` は既定50、最大200です。Timelineの `eventTypes` は `user-action`、`route-change`、`storage-change`、`network`、`error` を指定できます。Bridgeは記録が停止中なら `NOT_RECORDING`、Extensionから5秒以内に応答がない場合は `WEB_STATE_INSPECTOR_TIMEOUT` を返します。
+
+BridgeはページのStorage・Cookie・DOM・Networkを操作せず、拡張がすでに保持している記録だけを要求ごとに返します。Timeline、Network body、Cookie等をページの`window`へコピーして常駐させません。既存の明示的Pinia/TanStack Query診断ブリッジがあるページでは、そのAPIを置き換えずに拡張します。
+
+AIには次の調査順を推奨します。
+
+1. `getSummary()` で記録の有無と失敗件数を確認する。
+2. エラーがあれば `getErrors()` を呼ぶ。
+3. Network Errorがあれば `getNetworkErrors()` を呼ぶ。
+4. 原因候補の前後を確認するため `getTimeline({ limit: 30 })` を呼ぶ。
+
+例えば500を見つけた後、Timelineで直前のクリックと`sessionStorage`変更を確認できます。BridgeはMCP Server、HTTP/WebSocket Server、AIからのRecording開始、ページ操作、リアルタイムストリーミングを提供しません。
+
 ### 失敗イベント周辺だけのExport
 
 **Debug / Timeline**、**Debug / Network**、または**Debug / Errors**で、4xx / 5xx、status 0の通信失敗、`javascript-error`、`console-error`、`promise-rejection`の行にある **Export around event** を押します。AI Export画面で失敗イベントを確認し、**Seconds before** と **Seconds after** を指定して **Copy focused context** を押すと、その時間窓内の情報だけを生成します。既定値は失敗の**前5秒・後2秒**で、0〜60秒に変更できます。
