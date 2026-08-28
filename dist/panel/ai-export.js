@@ -81,6 +81,7 @@ export function createAiDebugContext(args) {
         selectedElements: args.selectedElements ?? [],
         reproductionNotes: args.reproductionNotes ?? { expectedResult: '', actualResult: '', reproductionSteps: '', additionalNotes: '' },
         focusedEvent: args.focusedEvent,
+        comparison: args.comparison,
     };
 }
 export function formatAiContextJson(context) {
@@ -93,16 +94,23 @@ export function formatAiContextMarkdown(context) {
     const notes = context.reproductionNotes;
     const failedNetwork = context.network.filter((entry) => Boolean(entry.error) || entry.status === 0 || entry.status >= 400);
     const timeline = context.timeline.map((event) => `${eventLine(event)}${possiblyRelated(event, context.userActions)}`);
+    const comparison = context.comparison;
+    const divergence = comparison?.firstDivergence;
+    const debugSummary = comparison?.suspiciousEvents.map((item) => `${item.reason}: ${eventLine(item.event)}${item.previous ? `\nPrevious: ${eventLine(item.previous)}` : ''}`).join('\n\n');
     const sections = [
         '# Web Debug Context',
         '> Review this exported context for secrets, tokens, personal data, and customer data before sharing it with any AI service. “Possibly related” means temporal proximity only; it does not prove causality.',
         '## Reproduction Notes',
         `Expected Result:\n\n${notes.expectedResult || 'Not provided'}\n\nActual Result:\n\n${notes.actualResult || 'Not provided'}\n\nReproduction Steps:\n\n${notes.reproductionSteps || 'Not provided'}\n\nAdditional Notes:\n\n${notes.additionalNotes || 'Not provided'}`,
+        ...(debugSummary ? ['## Debug Summary', debugSummary] : []),
+        ...(divergence ? ['## First Divergence', `Time: ${divergence.timestamp}\n\nKey: ${divergence.key}\n\nNormal:\n\n${code(divergence.normal)}\n\nBroken:\n\n${code(divergence.broken)}`] : []),
+        ...(comparison?.eventChains.length ? ['## Possibly Related Event Chains', comparison.eventChains.map((chain) => `### Event Chain #${chain.id}\n\n${chain.events.map((event) => eventLine(event)).join('\n\n↓\n\n')}`).join('\n\n')] : []),
         ...(context.focusedEvent ? ['## Focused Failure Window', formatFocusedEvent(context.focusedEvent, context)] : []),
         '## JavaScript and Console Events',
         context.errors.length ? context.errors.map(formatError).join('\n\n') : 'No JavaScript or console events recorded.',
         '## Network Errors',
         failedNetwork.length ? failedNetwork.map(formatNetwork).join('\n\n') : 'No failed network requests recorded.',
+        ...(comparison?.networkDifferences.length ? ['## Network Differences', comparison.networkDifferences.map((item) => `### ${item.key}\n\n${item.differences.map((diff) => `${diff.path}\n- ${JSON.stringify(diff.before)}\n+ ${JSON.stringify(diff.after)}`).join('\n\n')}`).join('\n\n')] : []),
         '## User Actions',
         context.userActions.length ? context.userActions.map(formatAction).join('\n\n') : 'No user actions recorded.',
         '## Route Changes',

@@ -18,6 +18,8 @@
 | Debug | Unified Timeline | 操作から状態変化、通信、例外までをISO timestamp順で統合表示。 |
 | Debug | Snapshots | ラベル付きのBefore / After Snapshot、JSON構造比較、Elementsで選択した要素だけの最小DOM Snapshot。 |
 | Debug | AI Export | 再現メモを含むMarkdownまたはJSONをローカル生成し、Copy for AIでクリップボードへコピー。 |
+| Debug | Recording Compare | 停止済みの正常・異常Recordingをローカルに2件まで保存し、最初の差分、API差分、時間近接チェーンを表示。 |
+| Debug | Debug Summary | 最初の4xx / 5xx / status 0、JavaScript / Console Error、正常系との差分を優先抽出。 |
 
 詳細な画面操作、同梱デモによる確認手順、AI Exportの使い分け、取得範囲と注意事項は[詳細操作ガイド](docs/user-guide-ja.md)を参照してください。
 
@@ -59,6 +61,17 @@ Route ChangeはVue RouterやReact Routerの内部APIを使いません。標準H
 Unified Timelineは**ISO 8601 timestamp**で並べます。ページ側の計測フックとDevTools Network APIの`performance.now()`は同一原点を共有しないため、`performanceMs`は表示順の判定に使いません。同一時刻や近接時刻は、操作と後続イベントの厳密な因果関係を証明するものではありません。
 
 `storage`イベントは変更を起こした同一ページではなく、同じStorage領域を共有する別文書で発火します。[4] そのため、同一ページでの原因追跡には、Record中に`Storage.prototype.setItem`、`removeItem`、`clear`を計測する方式を使用します。`localStorage.key = value`のようなプロパティ代入は、この初期版の追跡対象外です。
+
+### 正常・異常Recordingの比較
+
+不具合を再現できる場合は、次の順に操作します。
+
+1. 正常な操作を **Start Recording** → **Stop** し、**Debug / Recordings** で `Normal` として保存します。
+2. **Start Recording** で異常な操作を記録して停止し、`Broken` として保存します。
+3. **Debug / Compare** でNormalとBrokenを選び、**Compare Recordings** を押します。
+4. **First Divergence**、**Debug Summary**、**Network Differences**、**Possibly Related Event Chains** を確認してから、**Copy for AI** を使います。
+
+比較は時刻、イベント種別、Storageキー、HTTP methodとAPI endpointを使うbest effortの対応付けです。時間的近接や差分は因果関係を保証しません。JSON response/request bodyは構造単位で、headers・query・status・durationも比較します。bodyは既存の100KiB上限を超えて保持しません。
 
 ### NetworkとJavaScript / Console Events
 
@@ -104,6 +117,8 @@ Markdownの章は、AIが再現と障害の事実を先に読めるよう、次�
 | 7 | Unified Timeline | すべての記録イベントをISO timestamp順に列挙。 |
 | 8 | Snapshot Diff | Before / Afterラベル付きの状態差分。 |
 | 9 | Current State | 現在のPage、Environment、記録件数、選択DOM Snapshot。 |
+
+Recording比較を実行済みの場合は、`Debug Summary`、`First Divergence`、`Possibly Related Event Chains`、`Network Differences`を再現メモの直後に加えます。これにより、AIへ渡す情報は「最初に正常系と違った地点」を先頭側に置けます。
 
 Timeline上で、あるUser Actionの**後0〜1.5秒**に起きたイベントには`[possibly related to …]`を補助表示します。この表示はISO timestampの時間近接だけに基づくものであり、因果関係を示すものではありません。時刻を解釈できないイベントには表示しません。
 
