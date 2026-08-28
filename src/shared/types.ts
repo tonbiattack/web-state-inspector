@@ -9,6 +9,8 @@ export type NavigationId =
   | 'network'
   | 'errors'
   | 'snapshots'
+  | 'recordings'
+  | 'compare'
   | 'ai-export'
   | 'pinia'
   | 'tanstack-query';
@@ -330,6 +332,58 @@ export interface AiDebugContext {
   selectedElements: SelectedElementSnapshot[];
   reproductionNotes: ReproductionNotes;
   focusedEvent?: FocusedEventContext;
+  comparison?: RecordingComparison;
+}
+
+/** A bounded, local copy of one stopped debugging run. */
+export interface DebugRecording {
+  id: string;
+  name: string;
+  createdAt: string;
+  session: DebugSessionStatus;
+  timeline: TimelineEvent[];
+  network: NetworkEntry[];
+  errors: DebugError[];
+  storageChanges: StorageChangeEvent[];
+  userActions: UserActionEvent[];
+  routeChanges: RouteChangeEvent[];
+  snapshots: DebugSnapshot[];
+  selectedElements: SelectedElementSnapshot[];
+}
+
+export interface RecordingDivergence {
+  timestamp: string;
+  category: 'event' | 'storage' | 'network' | 'error' | 'snapshot';
+  key: string;
+  normal: unknown;
+  broken: unknown;
+}
+
+export interface NetworkDifference {
+  key: string;
+  normal?: NetworkEntry;
+  broken?: NetworkEntry;
+  differences: DiffEntry[];
+}
+
+export interface RelatedEventChain {
+  id: number;
+  events: TimelineEvent[];
+}
+
+export interface SuspiciousEvent {
+  reason: string;
+  event: TimelineEvent;
+  previous?: TimelineEvent;
+}
+
+export interface RecordingComparison {
+  normalRecordingId: string;
+  brokenRecordingId: string;
+  firstDivergence?: RecordingDivergence;
+  networkDifferences: NetworkDifference[];
+  eventChains: RelatedEventChain[];
+  suspiciousEvents: SuspiciousEvent[];
 }
 
 export interface InteractionTrackingSnapshot {

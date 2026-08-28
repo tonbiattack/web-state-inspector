@@ -6,6 +6,7 @@ import { createFocusedEventWindow, DEFAULT_CONTEXT_AFTER_MS, DEFAULT_CONTEXT_BEF
 import { InteractionTracker } from './interaction-tracker.js';
 import { JsonExpansionState } from './json-expansion-state.js';
 import { matchesNetworkFilter } from './network-collector.js';
+import { compareRecordings } from './recording-analysis.js';
 import { PageEvaluator } from './page-evaluator.js';
 import { emptyReproductionNotes, normalizeReproductionNotes } from './reproduction-notes.js';
 import { SelectedElementService } from './selected-element-service.js';
@@ -16,6 +17,8 @@ import type {
   CacheSummary,
   ChangeTrackingSnapshot,
   DebugSnapshot,
+  DebugRecording,
+  RecordingComparison,
   DiffEntry,
   NetworkEntry,
   NetworkFilter,
@@ -53,6 +56,10 @@ let changeTrackingActive = false;
 let focusedEventId: string | undefined;
 let focusedBeforeMs = DEFAULT_CONTEXT_BEFORE_MS;
 let focusedAfterMs = DEFAULT_CONTEXT_AFTER_MS;
+let recordings: DebugRecording[] = [];
+let normalRecordingId: string | undefined;
+let brokenRecordingId: string | undefined;
+let recordingComparison: RecordingComparison | undefined;
 const jsonExpansionState = new JsonExpansionState();
 const root = document.querySelector<HTMLDivElement>('#app');
 
@@ -97,6 +104,8 @@ const navItems: Array<{ id: NavigationId; label: string; group: 'Storage' | 'Fra
   { id: 'network', label: 'Network', group: 'Debug' },
   { id: 'errors', label: 'Errors', group: 'Debug' },
   { id: 'snapshots', label: 'Snapshots', group: 'Debug' },
+  { id: 'recordings', label: 'Recordings', group: 'Debug' },
+  { id: 'compare', label: 'Compare', group: 'Debug' },
   { id: 'ai-export', label: 'AI Export', group: 'Debug' },
   { id: 'pinia', label: 'Pinia', group: 'Framework', experimental: true },
   { id: 'tanstack-query', label: 'TanStack Query', group: 'Framework', experimental: true },
@@ -643,6 +652,57 @@ function renderDebugControls(): HTMLElement {
   return controls;
 }
 
+async function saveRecording(name: string): Promise<void> {
+  await debugSession.refresh();
+  const recording: DebugRecording = {
+    id: crypto.randomUUID(), name: name.trim() || `Recording ${recordings.length + 1}`, createdAt: new Date().toISOString(), session: debugSession.getStatus(),
+    timeline: debugSession.getTimeline(), network: debugSession.getNetwork(), errors: debugSession.getErrors(), storageChanges: await debugSession.getStorageChanges(), userActions: await debugSession.getUserActions(), routeChanges: await debugSession.getRouteChanges(),
+    snapshots: [beforeSnapshot, afterSnapshot].filter((snapshot): snapshot is DebugSnapshot => Boolean(snapshot)), selectedElements: selectedElementSnapshots.map((snapshot) => ({ ...snapshot, summary: { ...snapshot.summary } })),
+  };
+  recordings.push(recording);
+  if (recordings.length > 2) recordings.splice(0, recordings.length - 2);
+  normalRecordingId ??= recording.id;
+  brokenRecordingId = recording.id;
+  recordingComparison = undefined;
+  renderCurrentData();
+}
+
+function renderRecordings(): HTMLElement {
+  const section = element('section');
+  section.append(element('p', 'summary', '停止したDebug Recordingをローカルに最大2件保持します。正常系と異常系を保存してCompareへ進みます。新しい記録を開始する前に保存してください。'));
+  const form = element('div', 'timeline-controls'); const name = element('input', 'compact-input') as HTMLInputElement;
+  name.placeholder = 'Recording name (Normal / Broken)'; name.maxLength = 80;
+  const save = element('button', 'action-button', 'Save current recording'); save.type = 'button'; save.disabled = debugSession.getStatus().active || debugSession.getStatus().eventCount === 0;
+  save.addEventListener('click', () => { void saveRecording(name.value); }); form.append(name, save); section.append(form);
+  if (!recordings.length) { section.append(element('div', 'empty', '保存済みRecordingはありません。')); return section; }
+  const { table, body } = createTable(['Name', 'Created', 'Events', 'Network', 'Errors']);
+  for (const item of recordings) { const row = element('tr'); row.append(element('td', 'key-cell', item.name), element('td', undefined, formatTime(item.createdAt)), element('td', undefined, String(item.timeline.length)), element('td', undefined, String(item.network.length)), element('td', undefined, String(item.errors.length))); body.append(row); }
+  section.append(table); return section;
+}
+
+function recordingSelect(value: string | undefined, label: string, onChange: (id: string | undefined) => void): HTMLElement {
+  const field = element('label', 'field-label', label); const select = element('select', 'interval-select') as HTMLSelectElement;
+  for (const recording of recordings) { const option = element('option') as HTMLOptionElement; option.value = recording.id; option.textContent = recording.name; option.selected = recording.id === value; select.append(option); }
+  select.addEventListener('change', () => { onChange(select.value || undefined); recordingComparison = undefined; renderCurrentData(); }); field.append(select); return field;
+}
+
+function renderCompare(): HTMLElement {
+  const section = element('section'); section.append(element('p', 'summary', '時間・イベント種別・Storageキー・API endpointをbest effortで対応付けます。表示は因果関係を証明しません。'));
+  if (recordings.length < 2) { section.append(element('div', 'empty', 'Compareには2つの保存済みRecordingが必要です。')); return section; }
+  const controls = element('div', 'focused-export-fields'); controls.append(recordingSelect(normalRecordingId, 'Normal recording', (id) => { normalRecordingId = id; }), recordingSelect(brokenRecordingId, 'Broken recording', (id) => { brokenRecordingId = id; }));
+  const compare = element('button', 'action-button', 'Compare Recordings'); compare.type = 'button'; compare.addEventListener('click', () => { const normal = recordings.find((item) => item.id === normalRecordingId); const broken = recordings.find((item) => item.id === brokenRecordingId); if (normal && broken && normal !== broken) recordingComparison = compareRecordings(normal, broken); renderCurrentData(); }); controls.append(compare); section.append(controls);
+  if (!recordingComparison) return section;
+  const divergence = recordingComparison.firstDivergence;
+  section.append(element('h3', undefined, 'First Divergence'), element('pre', 'value-text', divergence ? `${formatTime(divergence.timestamp)}\n${divergence.key}\nNormal: ${JSON.stringify(divergence.normal)}\nBroken: ${JSON.stringify(divergence.broken)}` : 'No comparable divergence found.'));
+  section.append(element('h3', undefined, 'Debug Summary'));
+  section.append(element('pre', 'value-text', recordingComparison.suspiciousEvents.length ? recordingComparison.suspiciousEvents.map((item) => `${formatTime(item.event.timestamp)} ${item.reason}: ${item.event.summary}${item.previous ? `\nPrevious: ${item.previous.summary}` : ''}`).join('\n\n') : 'No suspicious events identified.'));
+  section.append(element('h3', undefined, 'Network Differences'));
+  section.append(element('pre', 'value-text', recordingComparison.networkDifferences.length ? recordingComparison.networkDifferences.map((item) => `${item.key}\n${item.differences.map((diff) => `${diff.path}\n- ${JSON.stringify(diff.before)}\n+ ${JSON.stringify(diff.after)}`).join('\n')}`).join('\n\n') : 'No network differences found.'));
+  section.append(element('h3', undefined, 'Possibly Related Event Chains'));
+  section.append(element('pre', 'value-text', recordingComparison.eventChains.length ? recordingComparison.eventChains.map((chain) => `Event Chain #${chain.id}\n${chain.events.map((event) => `${formatTime(event.timestamp)} ${event.kind} ${event.summary}`).join('\n↓\n')}`).join('\n\n') : 'No related event chains found.'));
+  return section;
+}
+
 function timelineDetails(event: TimelineEvent): string {
   if (event.kind === 'user-action') return [event.summary, event.target.text ? `text: ${event.target.text}` : '', event.target.value !== undefined ? `value: ${event.target.value}` : '', event.target.ariaLabel ? `aria-label: ${event.target.ariaLabel}` : ''].filter(Boolean).join('\n');
   if (event.kind === 'route-change') return `${event.routeType}\nfrom: ${event.from}\nto: ${event.to}`;
@@ -1007,6 +1067,7 @@ async function buildAiContext(): Promise<AiDebugContext> {
     selectedElements,
     reproductionNotes: normalizeReproductionNotes(reproductionNotes),
     focusedEvent: focusedWindow,
+    comparison: recordingComparison,
   });
 }
 
@@ -1193,6 +1254,14 @@ function renderCurrentData(): void {
   }
   if (state.selected === 'snapshots') {
     setBody(renderSnapshots());
+    return;
+  }
+  if (state.selected === 'recordings') {
+    setBody(renderRecordings());
+    return;
+  }
+  if (state.selected === 'compare') {
+    setBody(renderCompare());
     return;
   }
   if (state.selected === 'ai-export') {
