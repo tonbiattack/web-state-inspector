@@ -78,6 +78,12 @@ test('パネルUIは要求されたナビゲーション、検索、Refresh、JS
   assert.match(source, /Resume updates/);
   assert.match(source, /Show related events/);
   assert.match(source, /networkUpdateState/);
+  assert.match(source, /network-url-cell/);
+  assert.match(source, /Copy URL/);
+  const styles = await read('static/panel/styles.css');
+  assert.match(styles, /\.network-table/);
+  assert.match(styles, /\.network-url-cell/);
+  assert.match(styles, /overflow-wrap: anywhere/);
   assert.doesNotMatch(source, /'Copy Context'/);
   assert.doesNotMatch(source, /\.innerHTML\s*=/);
 });

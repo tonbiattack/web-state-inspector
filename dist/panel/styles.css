@@ -63,6 +63,18 @@ tr:hover td { background: color-mix(in srgb, var(--surface-alt) 65%, transparent
 .key-cell { min-width: 150px; overflow-wrap: anywhere; font-weight: 600; }
 .value-cell { min-width: 240px; max-width: 600px; }
 .value-text { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.network-table { min-width: 1120px; table-layout: fixed; }
+.network-table th:nth-child(1) { width: 72px; }
+.network-table th:nth-child(2) { width: 74px; }
+.network-table th:nth-child(3) { width: 38%; }
+.network-table th:nth-child(4) { width: 64px; }
+.network-table th:nth-child(5) { width: 88px; }
+.network-table th:nth-child(6) { width: 180px; }
+.network-table th:nth-child(7) { width: 170px; }
+.network-table th:nth-child(8) { width: 105px; }
+.network-url-cell { min-width: 0; max-width: none; overflow-wrap: anywhere; word-break: break-word; }
+.network-url-text { overflow-wrap: anywhere; word-break: break-word; }
+.network-url-cell .inline-copy { margin: 0 0 4px 8px; }
 .json { margin: 0; padding: 9px; overflow: auto; background: var(--code-bg); color: #dcdcaa; line-height: 1.45; white-space: pre-wrap; }
 .json details > summary { cursor: pointer; color: #9cdcfe; }
 .json details[open] > summary { margin-bottom: 7px; }

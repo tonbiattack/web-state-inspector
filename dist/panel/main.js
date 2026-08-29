@@ -892,6 +892,7 @@ function renderNetwork() {
         return section;
     }
     const { table, body } = createTable(['When', 'Method', 'URL', 'Status', 'Duration', 'Details', 'Related events', 'Focused export']);
+    table.classList.add('network-table');
     for (const entry of entries) {
         const detailCell = element('td', 'value-cell');
         const details = element('details');
@@ -922,6 +923,9 @@ function renderNetwork() {
             renderCurrentData();
         });
         relatedCell.append(related);
+        const urlCell = element('td', 'value-cell network-url-cell');
+        urlCell.title = entry.url;
+        urlCell.append(element('span', 'network-url-text', entry.url), copyButton(entry.url, 'Copy URL'));
         const exportCell = element('td');
         if (entry.status === 0 || entry.status >= 400 || entry.error) {
             const exportButton = element('button', 'action-button', 'Export around event');
@@ -932,7 +936,7 @@ function renderNetwork() {
         else {
             exportCell.textContent = '—';
         }
-        row.append(element('td', undefined, formatTime(entry.timestamp)), element('td', 'key-cell', entry.method), element('td', 'value-cell', entry.url), element('td', undefined, `${entry.status || '—'} ${entry.statusText}`), element('td', undefined, `${entry.durationMs} ms`), detailCell, relatedCell, exportCell);
+        row.append(element('td', undefined, formatTime(entry.timestamp)), element('td', 'key-cell', entry.method), urlCell, element('td', undefined, `${entry.status || '—'} ${entry.statusText}`), element('td', undefined, `${entry.durationMs} ms`), detailCell, relatedCell, exportCell);
         body.append(row);
     }
     section.append(table);
