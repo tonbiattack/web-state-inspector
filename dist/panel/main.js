@@ -743,7 +743,7 @@ function renderSelectedTimelineContext(timeline) {
         const when = offset === 0 ? 'Selected' : `${offset > 0 ? '+' : ''}${(offset / 1000).toFixed(1)} sec`;
         return `${when}  ${timelineIcon(event)} ${event.kind}  ${timelineDetails(event).replace(/\n/g, ' ')}`;
     }).join('\n')));
-    const copy = element('button', 'action-button', 'Copy Context');
+    const copy = element('button', 'action-button', 'Copy event context');
     copy.type = 'button';
     copy.addEventListener('click', () => { void copyEventContext(selected, copy); });
     section.append(copy);
@@ -751,7 +751,7 @@ function renderSelectedTimelineContext(timeline) {
 }
 function renderDebugTimeline() {
     const section = element('section');
-    section.append(renderDebugControls(), element('p', 'summary', 'User Action、Route Change、Storage変更、Network、JavaScript Error、console.error / warnを表示します。行を選ぶと前後のRelated Eventsを確認し、そのままCopy Contextできます。時刻の近接は因果関係を保証しません。'));
+    section.append(renderDebugControls(), element('p', 'summary', 'User Action、Route Change、Storage変更、Network、JavaScript Error、console.error / warnを表示します。行を選ぶと前後のRelated Eventsを確認し、Copy event contextで前5秒・後2秒の関連データをコピーできます。時刻の近接は因果関係を保証しません。'));
     const allTimeline = debugSession.getTimeline();
     const filters = element('div', 'filter-controls');
     for (const [value, label] of [['all', 'All'], ['important', 'Important']]) {
@@ -823,7 +823,7 @@ function renderDebugTimeline() {
             renderCurrentData();
         } });
         const contextCell = element('td');
-        const copy = element('button', 'action-button', 'Copy Context');
+        const copy = element('button', 'action-button', 'Copy event context');
         copy.type = 'button';
         copy.addEventListener('click', (click) => { click.stopPropagation(); void copyEventContext(event, copy); });
         contextCell.append(copy);

@@ -146,6 +146,8 @@ User Actionは高頻度の`mousemove`、`scroll`、`pointermove`を記録しま�
 
 Unified Timelineは、Networkとページ側フックの`performance.now()`原点が同じではないため、**ISO 8601 timestamp順**で並べます。`[possibly related to …]`は、User Actionの後0〜1.5秒に起きたイベントを補助表示するだけで、因果関係を証明しません。
 
+Timeline行を選ぶと、選択イベントを中心に前5秒・後2秒の **Related Events** を表示します。**Copy event context** は、同じ時間窓に含まれるTimeline、Network、JavaScript / Console Error、Storage変更、User Action、Route Change、Selected ElementをMarkdownとしてコピーします。失敗イベントに限らず、任意の選択イベントで使えます。
+
 ### 5.3 NetworkとErrorsの読み方
 
 **Debug / Network**では、All、Fetch/XHR、Error only、4xx / 5xxで表示を絞り込めます。Network情報は`chrome.devtools.network.onRequestFinished`が提供する完了済みHAR情報を基にします。[6] response bodyは`getContent()`で得られたときだけ保存し、1件あたり最大100KiBで切り詰めます。HARにはrequest bodyが常に含まれるわけではないため、取得不可の場合は理由を表示します。

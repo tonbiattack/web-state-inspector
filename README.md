@@ -62,7 +62,7 @@ Route ChangeはVue RouterやReact Routerの内部APIを使いません。標準H
 
 Unified Timelineは**ISO 8601 timestamp**で並べます。ページ側の計測フックとDevTools Network APIの`performance.now()`は同一原点を共有しないため、`performanceMs`は表示順の判定に使いません。同一時刻や近接時刻は、操作と後続イベントの厳密な因果関係を証明するものではありません。
 
-Timelineの **Important** を選ぶと、失敗したNetwork、JavaScript / Console Error、Storage変更、Route Changeと、その直前1.5秒以内のUser Actionだけを表示します。各行を選ぶと、選択イベントの前5秒・後2秒の **Related Events** を同じ画面で確認できます。**Copy Context** はその時間窓のTimeline、Network、Error、Storage、RouteをMarkdownとしてクリップボードにコピーするため、AI Export画面へ移動せずにAIへ渡せます。
+Timelineの **Important** を選ぶと、失敗したNetwork、JavaScript / Console Error、Storage変更、Route Changeと、その直前1.5秒以内のUser Actionだけを表示します。各行を選ぶと、選択イベントの前5秒・後2秒の **Related Events** を同じ画面で確認できます。**Copy event context** はその時間窓のTimeline、Network、Error、Storage、RouteをMarkdownとしてクリップボードにコピーするため、AI Export画面へ移動せずにAIへ渡せます。
 
 `storage`イベントは変更を起こした同一ページではなく、同じStorage領域を共有する別文書で発火します。[4] そのため、同一ページでの原因追跡には、Record中に`Storage.prototype.setItem`、`removeItem`、`clear`を計測する方式を使用します。`localStorage.key = value`のようなプロパティ代入は、この初期版の追跡対象外です。
 
