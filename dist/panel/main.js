@@ -86,7 +86,6 @@ const storagePolling = new StoragePollingController(() => ({ ...state, changeTra
 const navItems = [
     { id: 'debug-timeline', label: 'Timeline', group: 'Debug' },
     { id: 'network', label: 'Network', group: 'Debug' },
-    { id: 'snapshots', label: 'Snapshots', group: 'Debug' },
     { id: 'ai-export', label: 'AI Export', group: 'Debug' },
     { id: 'storage', label: 'Storage', group: 'Inspect' },
     { id: 'cookies', label: 'Cookies', group: 'Inspect' },
@@ -306,11 +305,11 @@ function renderShell() {
             button.addEventListener('click', () => {
                 if (state.selected === item.id)
                     return;
-                if (['debug-timeline', 'network', 'snapshots', 'ai-export'].includes(state.selected) && !['debug-timeline', 'network', 'snapshots', 'ai-export'].includes(item.id))
+                if (['debug-timeline', 'network', 'ai-export'].includes(state.selected) && !['debug-timeline', 'network', 'ai-export'].includes(item.id))
                     stopDebugPolling();
                 state.selected = item.id;
                 syncStoragePolling();
-                if (['debug-timeline', 'network', 'snapshots', 'ai-export'].includes(item.id) && debugSession.getStatus().active)
+                if (['debug-timeline', 'network', 'ai-export'].includes(item.id) && debugSession.getStatus().active)
                     startDebugPolling();
                 state.query = '';
                 refreshPanel();
@@ -1126,7 +1125,7 @@ function renderAiExport() {
     const status = debugSession.getStatus();
     const timeline = debugSession.getTimeline();
     section.append(element('div', 'notice warning', 'Copy for AIは外部送信を行いません。貼り付け前にCookie、Authorization、token、個人情報、顧客情報などの機密情報を必ず確認してください。'));
-    section.append(element('p', 'summary', `Events: ${status.eventCount} · Actions: ${status.userActionCount} · Routes: ${status.routeChangeCount} · Errors: ${status.errorCount} · Network: ${status.networkCount} · Snapshots: ${Number(Boolean(beforeSnapshot)) + Number(Boolean(afterSnapshot))} · Selected DOM: ${selectedElementSnapshots.length}`));
+    section.append(element('p', 'summary', `Events: ${status.eventCount} · Actions: ${status.userActionCount} · Routes: ${status.routeChangeCount} · Errors: ${status.errorCount} · Network: ${status.networkCount}`));
     const notesSection = element('div', 'reproduction-notes');
     notesSection.append(element('h3', undefined, 'Reproduction Notes'));
     const noteFields = [
@@ -1162,19 +1161,11 @@ function renderAiExport() {
     copy.addEventListener('click', () => { void copyForAi(copy); });
     const focused = currentFocusedEvent(timeline);
     copy.textContent = focused ? 'Copy focused context' : 'Copy for AI';
-    section.append(notesSection, renderFocusedExportControls(timeline), formatControls, copy, element('p', 'summary', focused ? '選択した失敗イベントの前後時間内にある操作・Route・Storage・Network・Errorだけを優先して出力します。' : '再現メモ、JavaScript / Console Error、失敗したNetwork、User Action、Route Change、Storage変更、Unified Timeline、Snapshot Diffの順に優先して出力します。'));
+    section.append(notesSection, renderFocusedExportControls(timeline), formatControls, copy, element('p', 'summary', focused ? '選択した失敗イベントの前後時間内にある操作・Route・Storage・Network・Errorだけを優先して出力します。' : '再現メモ、JavaScript / Console Error、失敗したNetwork、User Action、Route Change、Storage変更、Unified Timelineの順に優先して出力します。'));
     return section;
 }
 async function buildAiContext(eventContextAnchor) {
     await debugSession.refresh();
-    let selectedSnapshot = afterSnapshot ?? beforeSnapshot;
-    if (!selectedSnapshot) {
-        const captured = await snapshotService.capture('Current state');
-        if (captured.ok && captured.data) {
-            afterSnapshot = captured.data;
-            selectedSnapshot = captured.data;
-        }
-    }
     const allTimeline = debugSession.getTimeline();
     const focusedEvent = eventContextAnchor ? undefined : currentFocusedEvent(allTimeline);
     const focusedWindow = focusedEvent ? createFocusedEventWindow(focusedEvent, focusedBeforeMs, focusedAfterMs) : undefined;
@@ -1203,13 +1194,7 @@ async function buildAiContext(eventContextAnchor) {
         userActionCount: userActions.length,
         routeChangeCount: routeChanges.length,
     } : fullSession;
-    const diff = !activeWindow && beforeSnapshot && afterSnapshot ? diffSnapshots(beforeSnapshot, afterSnapshot) : undefined;
     return createAiDebugContext({
-        page: activeWindow ? selectedSnapshot?.page : undefined,
-        environment: activeWindow ? selectedSnapshot?.environment : undefined,
-        before: activeWindow ? undefined : beforeSnapshot,
-        after: activeWindow ? undefined : selectedSnapshot,
-        diff,
         network,
         errors,
         storageChanges,
@@ -1278,7 +1263,7 @@ function startDebugPolling() {
     stopDebugPolling();
     debugPollId = window.setInterval(() => {
         void debugSession.refresh().then(() => {
-            if (['debug-timeline', 'network', 'errors', 'snapshots', 'ai-export'].includes(state.selected))
+            if (['debug-timeline', 'network', 'errors', 'ai-export'].includes(state.selected))
                 renderCurrentData();
         });
     }, 500);
@@ -1391,10 +1376,6 @@ function renderCurrentData() {
         setBody(renderNetwork());
         return;
     }
-    if (state.selected === 'snapshots') {
-        setBody(renderSnapshots());
-        return;
-    }
     if (state.selected === 'ai-export') {
         setBody(renderAiExport());
         return;
@@ -1433,7 +1414,7 @@ async function refreshPanel(options = {}) {
         fail(info.error ?? 'ページ情報の取得に失敗しました。');
         return;
     }
-    if (['debug-timeline', 'network', 'snapshots', 'ai-export'].includes(target)) {
+    if (['debug-timeline', 'network', 'ai-export'].includes(target)) {
         await debugSession.refresh();
         if (!isCurrent())
             return;

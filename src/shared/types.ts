@@ -10,7 +10,6 @@ export type NavigationId =
   | 'debug-timeline'
   | 'network'
   | 'errors'
-  | 'snapshots'
   | 'recordings'
   | 'compare'
   | 'ai-export'
