@@ -34,7 +34,7 @@ function eventLine(event) {
     if (event.kind === 'network-request')
         return `${time} ${framePrefix}REQUEST ${event.method} ${event.url}`;
     if (event.kind === 'network-response')
-        return `${time} ${framePrefix}RESPONSE ${event.status} ${event.method} ${event.url} (${event.durationMs} ms)`;
+        return `${time} ${framePrefix}RESPONSE ${event.status} ${event.method} ${event.url} (${Math.round(event.durationMs)} ms)`;
     if (event.kind === 'user-action')
         return `${time} ${framePrefix}USER_ACTION ${event.actionType.toUpperCase()} ${event.target.selector}${event.key ? ` (${event.key})` : ''}`;
     if (event.kind === 'route-change')
@@ -76,7 +76,7 @@ function selectedEventSummary(event) {
     if (event.kind === 'network-request')
         return `REQUEST ${event.method} ${event.url}`;
     if (event.kind === 'network-response')
-        return `RESPONSE ${event.status} ${event.method} ${event.url} (${event.durationMs} ms)`;
+        return `RESPONSE ${event.status} ${event.method} ${event.url} (${Math.round(event.durationMs)} ms)`;
     if (event.kind === 'storage')
         return `STORAGE ${event.storage.storageArea}.${event.storage.key ?? 'clear'}: ${event.storage.oldValue ?? 'null'} → ${event.storage.newValue ?? 'null'}`;
     if (event.kind === 'user-action')
@@ -84,6 +84,47 @@ function selectedEventSummary(event) {
     if (event.kind === 'route-change')
         return `ROUTE ${event.from} → ${event.to}`;
     return `ERROR ${event.summary}`;
+}
+function conciseUrl(value) {
+    try {
+        const parsed = new URL(value);
+        return `${parsed.pathname}${parsed.search}`;
+    }
+    catch {
+        return value;
+    }
+}
+function conciseEventLine(event) {
+    const time = new Date(event.timestamp).toLocaleTimeString();
+    if (event.kind === 'user-action')
+        return `${time} ${event.actionType.toUpperCase()} ${event.target.selector}`;
+    if (event.kind === 'route-change')
+        return event.from === event.to ? undefined : `${time} ROUTE ${conciseUrl(event.from)} → ${conciseUrl(event.to)}`;
+    if (event.kind === 'storage')
+        return `${time} STORAGE ${event.storage.storageArea}.${event.storage.key ?? 'clear'}: ${event.storage.oldValue ?? 'null'} → ${event.storage.newValue ?? 'null'}`;
+    if (event.kind === 'network-request')
+        return `${time} REQUEST ${event.method} ${conciseUrl(event.url)}`;
+    if (event.kind === 'network-response')
+        return `${time} RESPONSE ${event.status} ${event.method} ${conciseUrl(event.url)} (${Math.round(event.durationMs)} ms)`;
+    if (event.kind === 'frame-added' || event.kind === 'frame-navigated' || event.kind === 'frame-removed')
+        return undefined;
+    return `${time} ERROR ${event.summary}`;
+}
+/** Compact output for the Timeline's Copy event context action. */
+export function formatEventContextMarkdown(context) {
+    const window = context.eventContext ?? context.focusedEvent;
+    const anchor = window?.anchor;
+    const relevant = context.timeline.map(conciseEventLine).filter((line) => Boolean(line));
+    const selected = anchor ? conciseEventLine(anchor) ?? selectedEventSummary(anchor) : 'Not available';
+    return [
+        '# Web Event Context',
+        '## Selected Event',
+        `${selected}\n\nContext: ${window ? `${window.beforeMs / 1000}s before → ${window.afterMs / 1000}s after` : 'Not available'}`,
+        '## Relevant Events',
+        relevant.length ? relevant.join('\n') : 'No related events recorded.',
+        '## Summary',
+        `- Errors: ${context.errors.length}\n- Storage changes: ${context.storageChanges.length}\n- Network requests: ${context.network.length}\n- User actions: ${context.userActions.length}\n- Route changes: ${context.routeChanges.filter((route) => route.from !== route.to).length}`,
+    ].join('\n\n');
 }
 function formatStorage(change, index) {
     return `### Storage change ${index + 1}\n\nArea: ${change.storageArea}\n\nOperation: ${change.operation}\n\nKey: ${change.key ?? 'clear'}\n\nBefore:\n\n${code(change.oldValue ?? 'null')}\n\nAfter:\n\n${code(change.newValue ?? 'null')}\n\nWhere:\n\n${code(change.stack.join('\n') || change.externalUrl || 'Not available')}`;
@@ -144,7 +185,6 @@ export function formatAiContextMarkdown(context) {
         ...(divergence ? ['## First Divergence', `Time: ${divergence.timestamp}\n\nKey: ${divergence.key}\n\nNormal:\n\n${code(divergence.normal)}\n\nBroken:\n\n${code(divergence.broken)}`] : []),
         ...(comparison?.eventChains.length ? ['## Possibly Related Event Chains', comparison.eventChains.map((chain) => `### Event Chain #${chain.id}\n\n${chain.events.map((event) => eventLine(event)).join('\n\n↓\n\n')}`).join('\n\n')] : []),
         ...(context.focusedEvent ? ['## Focused Failure Window', formatFocusedEvent(context.focusedEvent, context)] : []),
-        ...(context.eventContext ? ['## Selected Event Context', formatFocusedEvent(context.eventContext, context)] : []),
         '## JavaScript and Console Events',
         context.errors.length ? context.errors.map(formatError).join('\n\n') : 'No JavaScript or console events recorded.',
         '## Network Errors',
