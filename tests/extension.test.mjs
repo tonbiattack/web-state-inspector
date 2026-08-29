@@ -54,3 +54,12 @@ test('AI Bridgeは要求時だけ応答し、ページへデバッグデータ�
   assert.doesNotMatch(pageBridge, /__WEB_STATE_INSPECTOR_DATA__/);
   assert.doesNotMatch(pageBridge, /timeline:\s*\[\.\.\./);
 });
+
+test('配布するBridgeはclassic scriptとして読み込める', async () => {
+  const contentBridge = await read('dist/bridge/content-bridge.js');
+  const pageBridge = await read('dist/bridge/page-bridge.js');
+
+  for (const script of [contentBridge, pageBridge]) {
+    assert.doesNotMatch(script, /^\s*(?:import|export)\s/m);
+  }
+});
