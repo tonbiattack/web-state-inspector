@@ -7,6 +7,7 @@ import { InteractionTracker } from './interaction-tracker.js';
 import { JsonExpansionState } from './json-expansion-state.js';
 import { matchesNetworkFilter } from './network-collector.js';
 import { formatNetworkExchange, networkBodyText } from './network-copy.js';
+import { NetworkUpdateState } from './network-update-state.js';
 import { compareRecordings } from './recording-analysis.js';
 import { handleBridgeRequest } from '../bridge/bridge-handler.js';
 import type { BridgeRequest, BridgeResponse } from '../shared/ai-bridge-types.js';
@@ -47,6 +48,7 @@ const selectedElementService = new SelectedElementService(evaluator);
 let trackingPollId: number | undefined;
 let debugPollId: number | undefined;
 let networkFilter: NetworkFilter = 'all';
+const networkUpdateState = new NetworkUpdateState();
 let beforeSnapshot: DebugSnapshot | undefined;
 let afterSnapshot: DebugSnapshot | undefined;
 let currentDiff: DiffEntry[] | undefined;
@@ -95,6 +97,8 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (r
 });
 
 type LoadedData = StorageEntry[] | CookieEntry[] | ChangeTrackingSnapshot | unknown;
+type InspectStorage = { local: StorageEntry[]; session: StorageEntry[] };
+type FrameworkStates = { pinia: FrameworkState; tanstackQuery: FrameworkState };
 
 interface PanelState {
   selected: NavigationId;
@@ -107,7 +111,7 @@ interface PanelState {
 }
 
 const state: PanelState = {
-  selected: 'local-storage',
+  selected: 'debug-timeline',
   query: '',
   pageUrl: '',
   loadedData: [],
@@ -121,22 +125,14 @@ const storagePolling = new StoragePollingController(
   () => { void refreshPanel({ background: true }); },
 );
 
-const navItems: Array<{ id: NavigationId; label: string; group: 'Storage' | 'Framework' | 'Debug'; experimental?: boolean }> = [
-  { id: 'local-storage', label: 'Local Storage', group: 'Storage' },
-  { id: 'session-storage', label: 'Session Storage', group: 'Storage' },
-  { id: 'cookies', label: 'Cookies', group: 'Storage' },
-  { id: 'indexeddb', label: 'IndexedDB', group: 'Storage' },
-  { id: 'cache-storage', label: 'Cache Storage', group: 'Storage' },
-  { id: 'change-timeline', label: 'State Change Timeline', group: 'Storage' },
+const navItems: Array<{ id: NavigationId; label: string; group: 'Inspect' | 'Experimental' | 'Debug'; experimental?: boolean }> = [
   { id: 'debug-timeline', label: 'Timeline', group: 'Debug' },
   { id: 'network', label: 'Network', group: 'Debug' },
-  { id: 'errors', label: 'Errors', group: 'Debug' },
   { id: 'snapshots', label: 'Snapshots', group: 'Debug' },
-  { id: 'recordings', label: 'Recordings', group: 'Debug' },
-  { id: 'compare', label: 'Compare', group: 'Debug' },
   { id: 'ai-export', label: 'AI Export', group: 'Debug' },
-  { id: 'pinia', label: 'Pinia', group: 'Framework', experimental: true },
-  { id: 'tanstack-query', label: 'TanStack Query', group: 'Framework', experimental: true },
+  { id: 'storage', label: 'Storage', group: 'Inspect' },
+  { id: 'cookies', label: 'Cookies', group: 'Inspect' },
+  { id: 'framework-state', label: 'Framework State', group: 'Experimental', experimental: true },
 ];
 
 const labels: Record<NavigationId, string> = Object.fromEntries(navItems.map((item) => [item.id, item.label])) as Record<NavigationId, string>;
@@ -263,7 +259,7 @@ function renderAutoRefreshControls(): HTMLElement {
   return controls;
 }
 
-function renderStorage(entries: StorageEntry[]): HTMLElement {
+function renderStorage(entries: StorageEntry[], expansionPrefix: string = state.selected): HTMLElement {
   const section = element('section');
   const filtered = entries.filter((entry) => matchesQuery([entry.key, entry.value]));
   section.append(renderAutoRefreshControls(), element('p', 'summary', `${filtered.length} 件${state.query ? ` / ${entries.length} 件中` : ''}`));
@@ -278,7 +274,7 @@ function renderStorage(entries: StorageEntry[]): HTMLElement {
     row.append(element('td', 'key-cell', entry.key));
     const valueCell = element('td', 'value-cell');
     if (entry.isJson) {
-      valueCell.append(jsonView(entry.parsedValue, true, `storage-json:${state.selected}:${entry.key}`));
+      valueCell.append(jsonView(entry.parsedValue, true, `storage-json:${expansionPrefix}:${entry.key}`));
     } else {
       valueCell.append(copyButton(entry.value), element('pre', 'value-text', entry.value));
     }
@@ -286,6 +282,21 @@ function renderStorage(entries: StorageEntry[]): HTMLElement {
     body.append(row);
   }
   section.append(table);
+  return section;
+}
+
+function renderInspectStorage(data: InspectStorage): HTMLElement {
+  const section = element('section');
+  section.append(renderAutoRefreshControls(), element('p', 'summary', '現在のLocal StorageとSession Storageを確認します。変更の時系列はDebug / Timelineに統合されています。'));
+  for (const [label, entries] of [['Local Storage', data.local], ['Session Storage', data.session]] as const) {
+    const details = element('details') as HTMLDetailsElement;
+    details.open = true;
+    details.append(element('summary', undefined, `${label} · ${entries.length} entries`));
+    const body = renderStorage(entries, `storage:${label}`);
+    body.querySelector('.auto-refresh-controls')?.remove();
+    details.append(body);
+    section.append(details);
+  }
   return section;
 }
 
@@ -338,7 +349,7 @@ function requestCookies(url: string): Promise<CookieResponse> {
 }
 
 function isSearchable(id: NavigationId): boolean {
-  return ['local-storage', 'session-storage', 'cookies', 'indexeddb', 'change-timeline', 'debug-timeline', 'network', 'errors'].includes(id);
+  return ['storage', 'local-storage', 'session-storage', 'cookies', 'debug-timeline', 'network'].includes(id);
 }
 
 function renderShell(): void {
@@ -346,9 +357,9 @@ function renderShell(): void {
   const shell = element('main', 'app-shell');
   const sidebar = element('aside', 'sidebar');
   const brand = element('div', 'brand');
-  brand.append(element('h1', undefined, 'Web State Inspector'), element('p', undefined, 'Read-only browser state inspection'));
+  brand.append(element('h1', undefined, 'Web State Inspector'), element('p', undefined, `v${chrome.runtime.getManifest().version} · Record events, copy context`));
   sidebar.append(brand);
-  for (const group of ['Storage', 'Framework', 'Debug'] as const) {
+  for (const group of ['Debug', 'Inspect', 'Experimental'] as const) {
     const groupNode = element('nav', 'nav-group');
     groupNode.setAttribute('aria-label', group);
     groupNode.append(element('div', 'nav-group-title', group));
@@ -359,11 +370,10 @@ function renderShell(): void {
       if (item.experimental) button.append(element('span', 'experimental-badge', 'Experimental'));
       button.addEventListener('click', () => {
         if (state.selected === item.id) return;
-        if (state.selected === 'change-timeline' && item.id !== 'change-timeline') stopTrackingPolling();
-        if (['debug-timeline', 'network', 'errors', 'ai-export'].includes(state.selected) && !['debug-timeline', 'network', 'errors', 'ai-export'].includes(item.id)) stopDebugPolling();
+        if (['debug-timeline', 'network', 'snapshots', 'ai-export'].includes(state.selected) && !['debug-timeline', 'network', 'snapshots', 'ai-export'].includes(item.id)) stopDebugPolling();
         state.selected = item.id;
         syncStoragePolling();
-        if (['debug-timeline', 'network', 'errors', 'ai-export'].includes(item.id) && debugSession.getStatus().active) startDebugPolling();
+        if (['debug-timeline', 'network', 'snapshots', 'ai-export'].includes(item.id) && debugSession.getStatus().active) startDebugPolling();
         state.query = '';
         refreshPanel();
       });
@@ -557,6 +567,18 @@ function renderFrameworkState(result: FrameworkState): HTMLElement {
     const data = element('div', 'framework-data');
     data.append(jsonView(result.data, false));
     section.append(data);
+  }
+  return section;
+}
+
+function renderFrameworkStates(states: FrameworkStates): HTMLElement {
+  const section = element('section');
+  section.append(element('div', 'notice warning', 'Experimental: 明示的な読み取り専用diagnostic bridgeがある場合だけ表示します。'));
+  for (const [label, result] of [['Pinia', states.pinia], ['TanStack Query', states.tanstackQuery]] as const) {
+    const details = element('details') as HTMLDetailsElement;
+    details.append(element('summary', undefined, `${label} · ${result.detected ? 'Detected' : 'Not detected'}`), element('p', 'summary', result.message));
+    if (result.detected) details.append(jsonView(result.data, true, `framework:${label}`));
+    section.append(details);
   }
   return section;
 }
@@ -866,6 +888,22 @@ function renderDebugTimeline(): HTMLElement {
 function renderNetwork(): HTMLElement {
   const section = element('section');
   section.append(renderDebugControls());
+  const currentNetwork = debugSession.getNetwork();
+  const displayedNetwork = networkUpdateState.entries(currentNetwork);
+  const pendingCount = networkUpdateState.pendingCount(currentNetwork);
+  const updates = element('div', 'timeline-controls');
+  const pause = element('button', 'action-button', networkUpdateState.paused ? `Resume updates${pendingCount ? ` (${pendingCount} new)` : ''}` : 'Pause updates');
+  pause.type = 'button';
+  pause.addEventListener('click', () => {
+    if (networkUpdateState.paused) {
+      networkUpdateState.resume();
+    } else {
+      networkUpdateState.pause(currentNetwork);
+    }
+    renderCurrentData();
+  });
+  updates.append(pause, element('span', 'status', networkUpdateState.paused ? `${pendingCount} new requests` : 'Live updates'));
+  section.append(updates);
   const filters = element('div', 'filter-controls');
   for (const [id, label] of [['all', 'All'], ['fetch-xhr', 'Fetch/XHR'], ['error-only', 'Error only'], ['http-error', '4xx / 5xx']] as Array<[NetworkFilter, string]>) {
     const button = element('button', `filter-button${networkFilter === id ? ' active' : ''}`, label);
@@ -874,13 +912,13 @@ function renderNetwork(): HTMLElement {
     filters.append(button);
   }
   section.append(filters);
-  const entries = debugSession.getNetwork().filter((entry) => matchesNetworkFilter(entry, networkFilter)).filter((entry) => matchesQuery([entry.method, entry.url, entry.status, entry.statusText, entry.resourceType ?? ''])).slice().reverse();
+  const entries = displayedNetwork.filter((entry) => matchesNetworkFilter(entry, networkFilter)).filter((entry) => matchesQuery([entry.method, entry.url, entry.status, entry.statusText, entry.resourceType ?? ''])).slice().reverse();
   section.append(element('p', 'summary', `${entries.length} 件${networkFilter !== 'all' ? '（フィルタ適用）' : ''}。response bodyは取得できた場合のみ最大100KiBまで表示します。`));
   if (entries.length === 0) {
     section.append(element('div', 'empty', '該当するNetwork記録はありません。Start Recording以降の完了リクエストが対象です。'));
     return section;
   }
-  const { table, body } = createTable(['When', 'Method', 'URL', 'Status', 'Duration', 'Details', 'Focused export']);
+  const { table, body } = createTable(['When', 'Method', 'URL', 'Status', 'Duration', 'Details', 'Related events', 'Focused export']);
   for (const entry of entries) {
     const detailCell = element('td', 'value-cell');
     const details = element('details') as HTMLDetailsElement;
@@ -900,6 +938,16 @@ function renderNetwork(): HTMLElement {
     details.append(responseBodyHeading, element('pre', 'value-text', networkBodyText(entry.responseBody)));
     detailCell.append(details);
     const row = element('tr');
+    const relatedCell = element('td');
+    const related = element('button', 'action-button', 'Show related events');
+    related.type = 'button';
+    related.addEventListener('click', () => {
+      selectedTimelineEventId = `${entry.id}-response`;
+      state.selected = 'debug-timeline';
+      state.query = '';
+      renderCurrentData();
+    });
+    relatedCell.append(related);
     const exportCell = element('td');
     if (entry.status === 0 || entry.status >= 400 || entry.error) {
       const exportButton = element('button', 'action-button', 'Export around event');
@@ -916,6 +964,7 @@ function renderNetwork(): HTMLElement {
       element('td', undefined, `${entry.status || '—'} ${entry.statusText}`),
       element('td', undefined, `${entry.durationMs} ms`),
       detailCell,
+      relatedCell,
       exportCell,
     );
     body.append(row);
@@ -1002,31 +1051,37 @@ function renderSnapshots(): HTMLElement {
   afterLabel.append(snapshotLabelInput('after'));
   labels.append(beforeLabel, afterLabel);
   const controls = element('div', 'timeline-controls');
-  const before = element('button', 'action-button', 'Capture Before');
+  const before = element('button', 'action-button', 'Capture Snapshot 1');
   before.type = 'button';
   before.addEventListener('click', () => { void captureSnapshot('before'); });
-  const after = element('button', 'action-button', 'Capture After');
+  const after = element('button', 'action-button', 'Capture Snapshot 2');
   after.type = 'button';
   after.addEventListener('click', () => { void captureSnapshot('after'); });
   const selected = element('button', 'action-button', 'Capture Selected Element');
   selected.type = 'button';
   selected.addEventListener('click', () => { void captureSelectedElement(); });
-  const diff = element('button', 'action-button', 'Show Diff');
+  const diff = element('button', 'action-button', 'Diff');
   diff.type = 'button';
   diff.disabled = !beforeSnapshot || !afterSnapshot;
   diff.addEventListener('click', () => { if (beforeSnapshot && afterSnapshot) { currentDiff = diffSnapshots(beforeSnapshot, afterSnapshot).entries; renderCurrentData(); } });
   controls.append(before, after, selected, diff);
-  section.append(labels, controls, renderSnapshotSummary('Before', beforeSnapshot), renderSnapshotSummary('After', afterSnapshot));
+  section.append(labels, controls, renderSnapshotSummary('Snapshot 1', beforeSnapshot), renderSnapshotSummary('Snapshot 2', afterSnapshot));
+  for (const [label, snapshot] of [['Raw Snapshot 1', beforeSnapshot], ['Raw Snapshot 2', afterSnapshot]] as const) {
+    if (!snapshot) continue;
+    const raw = element('details') as HTMLDetailsElement;
+    raw.append(element('summary', undefined, label), jsonView(snapshot, true, `snapshot-raw:${label}`));
+    section.append(raw);
+  }
   const collectionErrors = [...(beforeSnapshot?.collectionErrors ?? []), ...(afterSnapshot?.collectionErrors ?? [])];
   if (collectionErrors.length) {
     section.append(renderUnavailable(`Snapshotの一部を取得できませんでした。${collectionErrors.join(' / ')}`, true));
   }
   section.append(renderSelectedElementSnapshots());
   if (!currentDiff) {
-    section.append(element('p', 'summary', 'Capture Before後に対象アプリを操作し、Capture Afterを押してからShow Diffを選択してください。'));
+    section.append(element('p', 'summary', 'Snapshot 1を取得して対象アプリを操作し、Snapshot 2を取得してからDiffを選択してください。URL、Storage、Cookie、明示的診断ブリッジのFramework Stateを比較します。'));
     return section;
   }
-  section.append(element('p', 'summary', `${beforeSnapshot?.label ?? 'Before'} vs ${afterSnapshot?.label ?? 'After'}: ${currentDiff.length} 件の差分。Storage、明示的診断ブリッジのFramework State、IndexedDB metadata、Cache Storage metadataを比較します。`));
+  section.append(element('p', 'summary', `${beforeSnapshot?.label ?? 'Snapshot 1'} vs ${afterSnapshot?.label ?? 'Snapshot 2'}: ${currentDiff.length} 件の差分。Storage、Cookie、明示的診断ブリッジのFramework Stateを比較します。`));
   if (currentDiff.length === 0) {
     section.append(element('div', 'empty', 'Before / Afterの差分はありません。'));
     return section;
@@ -1367,24 +1422,12 @@ function renderCurrentData(): void {
     setBody(renderUnavailable('検査対象ページから情報を取得しています。'));
     return;
   }
-  if (state.selected === 'local-storage' || state.selected === 'session-storage') {
-    setBody(renderStorage(state.loadedData as StorageEntry[]));
+  if (state.selected === 'storage') {
+    setBody(renderInspectStorage(state.loadedData as InspectStorage));
     return;
   }
   if (state.selected === 'cookies') {
     setBody(renderCookies(state.loadedData as CookieEntry[]));
-    return;
-  }
-  if (state.selected === 'indexeddb') {
-    setBody(renderIndexedDatabases(state.loadedData as IndexedDbSummary[]));
-    return;
-  }
-  if (state.selected === 'cache-storage') {
-    setBody(renderCacheNames(state.loadedData as string[]));
-    return;
-  }
-  if (state.selected === 'change-timeline') {
-    setBody(renderChangeTimeline((state.loadedData as ChangeTrackingSnapshot) || emptyTimeline()));
     return;
   }
   if (state.selected === 'debug-timeline') {
@@ -1395,28 +1438,17 @@ function renderCurrentData(): void {
     setBody(renderNetwork());
     return;
   }
-  if (state.selected === 'errors') {
-    setBody(renderErrors());
-    return;
-  }
   if (state.selected === 'snapshots') {
     setBody(renderSnapshots());
-    return;
-  }
-  if (state.selected === 'recordings') {
-    setBody(renderRecordings());
-    return;
-  }
-  if (state.selected === 'compare') {
-    setBody(renderCompare());
     return;
   }
   if (state.selected === 'ai-export') {
     setBody(renderAiExport());
     return;
   }
-  if (state.selected === 'pinia' || state.selected === 'tanstack-query') {
-    setBody(renderFrameworkState(state.loadedData as FrameworkState));
+  if (state.selected === 'framework-state') {
+    setBody(renderFrameworkStates(state.loadedData as FrameworkStates));
+    return;
   }
 }
 
@@ -1448,22 +1480,21 @@ async function refreshPanel(options: { background?: boolean } = {}): Promise<voi
     return;
   }
 
-  if (['debug-timeline', 'network', 'errors', 'snapshots', 'ai-export'].includes(target)) {
+  if (['debug-timeline', 'network', 'snapshots', 'ai-export'].includes(target)) {
     await debugSession.refresh();
     if (!isCurrent()) return;
     finish();
     return;
   }
 
-  if (target === 'local-storage' || target === 'session-storage') {
-    const kind = target === 'local-storage' ? 'localStorage' : 'sessionStorage';
-    const result = await evaluator.getStorage(kind);
+  if (target === 'storage') {
+    const [local, session] = await Promise.all([evaluator.getStorage('localStorage'), evaluator.getStorage('sessionStorage')]);
     if (!isCurrent()) return;
-    if (!result.ok || !result.data) {
-      fail(result.error ?? `${labels[target]}を取得できません。`);
+    if (!local.ok || !local.data || !session.ok || !session.data) {
+      fail(local.error ?? session.error ?? 'Storageを取得できません。');
       return;
     }
-    state.loadedData = result.data;
+    state.loadedData = { local: local.data, session: session.data } satisfies InspectStorage;
     finish();
     return;
   }
@@ -1480,55 +1511,14 @@ async function refreshPanel(options: { background?: boolean } = {}): Promise<voi
     return;
   }
 
-  if (target === 'indexeddb') {
-    const result = await evaluator.getIndexedDatabases();
+  if (target === 'framework-state') {
+    const [pinia, tanstackQuery] = await Promise.all([evaluator.getFrameworkState('pinia'), evaluator.getFrameworkState('tanstackQuery')]);
     if (!isCurrent()) return;
-    if (!result.ok || !result.data) {
-      fail(result.error ?? 'IndexedDBを取得できません。');
+    if (!pinia.ok || !pinia.data || !tanstackQuery.ok || !tanstackQuery.data) {
+      fail(pinia.error ?? tanstackQuery.error ?? 'Framework Stateを取得できません。');
       return;
     }
-    state.loadedData = result.data;
-    finish();
-    return;
-  }
-
-  if (target === 'change-timeline') {
-    const result = await changeTracker.getSnapshot();
-    if (!isCurrent()) return;
-    if (!result.ok || !result.data) {
-      fail(result.error ?? '変更記録を取得できません。');
-      return;
-    }
-    state.loadedData = result.data;
-    changeTrackingActive = result.data.active;
-    if (result.data.active) startTrackingPolling();
-    else stopTrackingPolling();
-    syncStoragePolling();
-    finish();
-    return;
-  }
-
-  if (target === 'cache-storage') {
-    const result = await evaluator.getCacheNames();
-    if (!isCurrent()) return;
-    if (!result.ok || !result.data) {
-      fail(result.error ?? 'Cache Storageを取得できません。');
-      return;
-    }
-    state.loadedData = result.data;
-    finish();
-    return;
-  }
-
-  if (target === 'pinia' || target === 'tanstack-query') {
-    const kind = target === 'pinia' ? 'pinia' : 'tanstackQuery';
-    const result = await evaluator.getFrameworkState(kind);
-    if (!isCurrent()) return;
-    if (!result.ok || !result.data) {
-      fail(result.error ?? `${labels[target]}の状態を取得できません。`);
-      return;
-    }
-    state.loadedData = result.data;
+    state.loadedData = { pinia: pinia.data, tanstackQuery: tanstackQuery.data } satisfies FrameworkStates;
     finish();
   }
 }

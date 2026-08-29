@@ -32,7 +32,7 @@ test('Storage JSONビューは開閉イベントを状態管理へ同期し、�
   assert.match(source, /jsonExpansionState\.setExpanded\(expansionKey, !details\.open\)/);
   assert.match(source, /details\.addEventListener\('toggle'/);
   assert.match(source, /jsonExpansionState\.setExpanded\(expansionKey, details\.open\)/);
-  assert.match(source, /jsonView\(entry\.parsedValue, true, `storage-json:\$\{state\.selected\}:\$\{entry\.key\}`\)/);
+  assert.match(source, /jsonView\(entry\.parsedValue, true, `storage-json:\$\{expansionPrefix\}:\$\{entry\.key\}`\)/);
 });
 
 test('Network詳細はRecording中の再描画後も開閉状態を維持する', async () => {
