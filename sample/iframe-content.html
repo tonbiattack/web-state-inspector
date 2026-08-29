@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>iframe content</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 1rem; margin: 0; background: #fffbf0; }
+    button { margin: 0.25rem; padding: 0.3rem 0.6rem; cursor: pointer; }
+    p { margin: 0.5rem 0; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <strong>iframe</strong> – same origin (<span id="origin"></span>)
+  <br />
+  <button id="btn-ss">Write sessionStorage (iframe)</button>
+  <button id="btn-err">Throw error in iframe</button>
+  <p id="status">—</p>
+
+  <script>
+    document.getElementById('origin').textContent = location.origin;
+
+    document.getElementById('btn-ss').addEventListener('click', () => {
+      sessionStorage.setItem('iframe-demo', String(Date.now()));
+      document.getElementById('status').textContent = 'sessionStorage.iframe-demo = ' + sessionStorage.getItem('iframe-demo');
+    });
+
+    document.getElementById('btn-err').addEventListener('click', () => {
+      try { null.boom; } catch (e) { console.error('[iframe]', e); }
+    });
+  </script>
+</body>
+</html>

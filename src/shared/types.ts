@@ -130,7 +130,16 @@ export interface CookieResponse {
   error?: string;
 }
 
-export type DebugEventKind = 'storage' | 'network-request' | 'network-response' | 'javascript-error' | 'console-error' | 'console-warn' | 'promise-rejection' | 'user-action' | 'route-change';
+export type DebugEventKind = 'storage' | 'network-request' | 'network-response' | 'javascript-error' | 'console-error' | 'console-warn' | 'promise-rejection' | 'user-action' | 'route-change' | 'frame-added' | 'frame-navigated' | 'frame-removed';
+
+export interface FrameInfo {
+  frameId: number | string;
+  parentFrameId?: number | string;
+  url: string;
+  origin?: string;
+  isMainFrame: boolean;
+  isCrossOrigin?: boolean;
+}
 
 export interface TimelineEventBase {
   id: string;
@@ -138,6 +147,7 @@ export interface TimelineEventBase {
   performanceMs: number;
   kind: DebugEventKind;
   summary: string;
+  frame?: FrameInfo;
 }
 
 export interface StorageTimelineEvent extends TimelineEventBase {
@@ -172,6 +182,7 @@ export interface DebugError {
   line?: number;
   column?: number;
   duplicateCount: number;
+  crossOriginRestricted?: boolean;
 }
 
 export interface ErrorTimelineEvent extends TimelineEventBase {
@@ -206,7 +217,14 @@ export interface RouteChangeEvent extends TimelineEventBase {
   to: string;
 }
 
-export type TimelineEvent = StorageTimelineEvent | NetworkRequestEvent | NetworkResponseEvent | ErrorTimelineEvent | UserActionEvent | RouteChangeEvent;
+export type TimelineEvent = StorageTimelineEvent | NetworkRequestEvent | NetworkResponseEvent | ErrorTimelineEvent | UserActionEvent | RouteChangeEvent | FrameLifecycleEvent;
+
+export interface FrameLifecycleEvent extends TimelineEventBase {
+  kind: 'frame-added' | 'frame-navigated' | 'frame-removed';
+  frame: FrameInfo;
+  fromUrl?: string;
+  toUrl?: string;
+}
 
 export interface HeaderEntry {
   name: string;

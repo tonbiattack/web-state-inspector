@@ -14,8 +14,8 @@
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
-  "permissions": ["cookies"],
+  "permissions": ["cookies", "webNavigation"],
   "host_permissions": ["<all_urls>"],
-  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["bridge/content-bridge.js"], "run_at": "document_start", "all_frames": false }],
+  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["bridge/content-bridge.js"], "run_at": "document_start", "all_frames": true }],
   "web_accessible_resources": [{ "resources": ["bridge/page-bridge.js"], "matches": ["<all_urls>"] }]
 }

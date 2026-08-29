@@ -157,6 +157,12 @@ export class DebugSession {
             }
         }
     }
+    /** Add events originating outside the normal poll cycle (e.g. frame lifecycle events from the background service worker). */
+    addExternalEvents(events) {
+        if (!this.active)
+            return;
+        this.addEvents(events);
+    }
     addEvents(events) {
         this.timeline.push(...events);
         if (this.timeline.length > MAX_TIMELINE_EVENTS)

@@ -59,12 +59,18 @@ export class ErrorCollector {
           duplicateCount: 1,
           signature,
           createdAt: Date.now(),
+          crossOriginRestricted: details.crossOriginRestricted || undefined,
         });
         if (state.errors.length > state.capacity) state.errors.splice(0, state.errors.length - state.capacity);
       };
       state.errorListener = (event) => {
         if (event instanceof ErrorEvent) {
-          record('javascript-error', { message: event.message || safeString(event.error), stack: asStack(event.error), sourceUrl: event.filename, line: event.lineno, column: event.colno });
+          // "Script error." with no source/line/column is the browser's sanitised
+          // cross-origin error — tag it so consumers know details are unavailable.
+          const isCrossOrigin = event.message === 'Script error.' && !event.filename && (!event.lineno || event.lineno === 0);
+          const message = isCrossOrigin ? 'Cross-origin error: Details unavailable' : (event.message || safeString(event.error));
+          const details = { message, stack: asStack(event.error), sourceUrl: event.filename, line: event.lineno, column: event.colno, crossOriginRestricted: isCrossOrigin || undefined };
+          record('javascript-error', details);
         }
       };
       state.rejectionListener = (event) => {

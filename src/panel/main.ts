@@ -60,6 +60,8 @@ let focusedBeforeMs = DEFAULT_CONTEXT_BEFORE_MS;
 let focusedAfterMs = DEFAULT_CONTEXT_AFTER_MS;
 let selectedTimelineEventId: string | undefined;
 let timelineView: 'all' | 'important' = 'all';
+/** 'all' = no frame filter, 'main' = main frame only, any other string = specific frame URL */
+let timelineFrameFilter: string = 'all';
 let recordings: DebugRecording[] = [];
 let normalRecordingId: string | undefined;
 let brokenRecordingId: string | undefined;
@@ -71,7 +73,13 @@ if (!root) throw new Error('Panel root was not found.');
 const appRoot: HTMLDivElement = root;
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (response: BridgeResponse) => void) => {
-  const envelope = message as { type?: string; request?: BridgeRequest };
+  const envelope = message as { type?: string; request?: BridgeRequest; tabId?: number; event?: TimelineEvent };
+  // Handle frame lifecycle events forwarded from the background service worker.
+  if (envelope?.type === 'FRAME_LIFECYCLE_EVENT' && envelope.tabId === chrome.devtools.inspectedWindow.tabId && envelope.event) {
+    debugSession.addExternalEvents([envelope.event]);
+    if (['debug-timeline', 'network', 'errors', 'ai-export'].includes(state.selected)) renderCurrentData();
+    return;
+  }
   if (envelope?.type !== 'WEB_STATE_INSPECTOR_BRIDGE_REQUEST' || !envelope.request || sender.tab?.id !== chrome.devtools.inspectedWindow.tabId) return;
   void handleBridgeRequest(envelope.request, {
     getStatus: () => debugSession.getStatus(),
@@ -725,6 +733,12 @@ function renderCompare(): HTMLElement {
 function timelineDetails(event: TimelineEvent): string {
   if (event.kind === 'user-action') return [event.summary, event.target.text ? `text: ${event.target.text}` : '', event.target.value !== undefined ? `value: ${event.target.value}` : '', event.target.ariaLabel ? `aria-label: ${event.target.ariaLabel}` : ''].filter(Boolean).join('\n');
   if (event.kind === 'route-change') return `${event.routeType}\nfrom: ${event.from}\nto: ${event.to}`;
+  if (event.kind === 'frame-added' || event.kind === 'frame-navigated' || event.kind === 'frame-removed') {
+    const parts = [event.summary];
+    if (event.fromUrl) parts.push(`from: ${event.fromUrl}`);
+    if (event.frame.parentFrameId !== undefined) parts.push(`parent: ${String(event.frame.parentFrameId)}`);
+    return parts.join('\n');
+  }
   return event.summary;
 }
 
@@ -733,7 +747,24 @@ function timelineIcon(event: TimelineEvent): string {
   if (event.kind === 'route-change') return '↗';
   if (event.kind === 'storage') return '◆';
   if (event.kind.startsWith('network-')) return isFailureTimelineEvent(event) ? '⚠' : '⇄';
+  if (event.kind === 'frame-added') return '⊕';
+  if (event.kind === 'frame-navigated') return '⇉';
+  if (event.kind === 'frame-removed') return '⊖';
   return isFailureTimelineEvent(event) ? '✕' : '!';
+}
+
+/** Short label for a frame, used in UI badges and AI export. */
+function frameLabel(event: TimelineEvent): string {
+  const frame = event.frame;
+  if (!frame) return '[Main]';
+  if (frame.isMainFrame) return '[Main]';
+  try {
+    const parsed = new URL(frame.url);
+    const path = parsed.pathname === '/' ? parsed.hostname : parsed.pathname;
+    return `[iframe ${path.slice(0, 30)}]`;
+  } catch {
+    return '[iframe]';
+  }
 }
 
 function renderSelectedTimelineContext(timeline: TimelineEvent[]): HTMLElement | undefined {
@@ -765,18 +796,65 @@ function renderDebugTimeline(): HTMLElement {
     button.addEventListener('click', () => { timelineView = value; renderCurrentData(); }); filters.append(button);
   }
   section.append(filters);
-  const events = allTimeline.filter((event) => timelineView === 'all' || isImportantTimelineEvent(event, allTimeline)).filter((event) => matchesQuery([event.kind, event.summary, timelineDetails(event)])).slice().reverse();
+
+  // ── Frame filter dropdown ──────────────────────────────────────────────────
+  // Collect distinct frames from timeline events that carry a frame field.
+  const frameOptions = new Map<string, string>(); // key → display label
+  frameOptions.set('all', 'All Frames');
+  frameOptions.set('main', 'Main Frame');
+  for (const event of allTimeline) {
+    if (event.frame && !event.frame.isMainFrame) {
+      const key = event.frame.url;
+      if (!frameOptions.has(key)) {
+        try {
+          const parsed = new URL(key);
+          const display = parsed.pathname === '/' ? parsed.hostname : parsed.pathname.slice(0, 40);
+          frameOptions.set(key, `iframe: ${display}`);
+        } catch {
+          frameOptions.set(key, `iframe: ${key.slice(0, 40)}`);
+        }
+      }
+    }
+  }
+  if (frameOptions.size > 2) {
+    const frameFilterRow = element('div', 'filter-controls');
+    const label = element('label', 'field-label', 'Frame: ');
+    const select = element('select', 'interval-select') as HTMLSelectElement;
+    for (const [key, displayLabel] of frameOptions.entries()) {
+      const option = element('option') as HTMLOptionElement;
+      option.value = key;
+      option.textContent = displayLabel;
+      option.selected = key === timelineFrameFilter;
+      select.append(option);
+    }
+    select.addEventListener('change', () => { timelineFrameFilter = select.value; renderCurrentData(); });
+    label.append(select);
+    frameFilterRow.append(label);
+    section.append(frameFilterRow);
+  }
+
+  const events = allTimeline
+    .filter((event) => timelineView === 'all' || isImportantTimelineEvent(event, allTimeline))
+    .filter((event) => {
+      if (timelineFrameFilter === 'all') return true;
+      if (timelineFrameFilter === 'main') return !event.frame || event.frame.isMainFrame;
+      return event.frame?.url === timelineFrameFilter;
+    })
+    .filter((event) => matchesQuery([event.kind, event.summary, timelineDetails(event)]))
+    .slice().reverse();
   if (events.length === 0) {
     section.append(element('div', 'empty', 'Start Recordingを押してから対象アプリを操作してください。'));
     return section;
   }
-  const { table, body } = createTable(['When', 'Type', 'Summary', 'Context']);
+  const { table, body } = createTable(['When', 'Frame', 'Type', 'Summary', 'Context']);
   for (const event of events) {
     const row = element('tr', `${isImportantTimelineEvent(event, allTimeline) ? 'important-event' : ''}${event.id === selectedTimelineEventId ? ' selected-event' : ''}`);
     row.tabIndex = 0; row.addEventListener('click', () => { selectedTimelineEventId = event.id; renderCurrentData(); }); row.addEventListener('keydown', (key) => { if (key.key === 'Enter' || key.key === ' ') { key.preventDefault(); selectedTimelineEventId = event.id; renderCurrentData(); } });
     const contextCell = element('td');
     const copy = element('button', 'action-button', 'Copy Context'); copy.type = 'button'; copy.addEventListener('click', (click) => { click.stopPropagation(); void copyEventContext(event, copy); }); contextCell.append(copy);
-    row.append(element('td', undefined, formatTime(event.timestamp)), element('td', 'key-cell', `${timelineIcon(event)} ${event.kind}`), element('td', 'value-cell', timelineDetails(event)), contextCell);
+    const frameBadge = element('td', 'key-cell frame-badge', frameLabel(event));
+    if (event.frame?.isCrossOrigin) frameBadge.title = 'Cross-origin frame';
+    row.append(element('td', undefined, formatTime(event.timestamp)), frameBadge, element('td', 'key-cell', `${timelineIcon(event)} ${event.kind}`), element('td', 'value-cell', timelineDetails(event)), contextCell);
     body.append(row);
   }
   section.append(table);

@@ -164,6 +164,12 @@ export class DebugSession {
     }
   }
 
+  /** Add events originating outside the normal poll cycle (e.g. frame lifecycle events from the background service worker). */
+  addExternalEvents(events: TimelineEvent[]): void {
+    if (!this.active) return;
+    this.addEvents(events);
+  }
+
   private addEvents(events: TimelineEvent[]): void {
     this.timeline.push(...events);
     if (this.timeline.length > MAX_TIMELINE_EVENTS) this.timeline.splice(0, this.timeline.length - MAX_TIMELINE_EVENTS);
