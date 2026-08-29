@@ -1,4 +1,6 @@
 export type NavigationId =
+  | 'storage'
+  | 'framework-state'
   | 'local-storage'
   | 'session-storage'
   | 'cookies'

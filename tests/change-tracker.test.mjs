@@ -108,12 +108,14 @@ test('Storage変更計測は上限を超えた古いイベントを破棄する'
   assert.equal(snapshot.data.events.at(-1).key, 'key-23');
 });
 
-test('タイムラインUIと動作確認ページには記録操作とStorage操作の入口がある', async () => {
+test('Storage変更は独立画面ではなくDebug Timelineへ統合されている', async () => {
   const panel = await readFile(resolve(root, 'src/panel/main.ts'), 'utf8');
   const sample = await readFile(resolve(root, 'sample/index.html'), 'utf8');
-  for (const label of ['State Change Timeline', 'Record', 'Stop', 'Clear', 'Before → After', 'Where']) {
+  const nav = panel.slice(panel.indexOf('const navItems'), panel.indexOf('const labels'));
+  for (const label of ['Timeline', 'Storage']) {
     assert.match(panel, new RegExp(`'${label.replace(/[→]/g, '\\$&')}'`));
   }
+  assert.doesNotMatch(nav, /State Change Timeline/);
   assert.match(panel, /setInterval/);
   assert.match(panel, /changeTracker\.start/);
   assert.match(sample, /localStorage\.setItem/);
