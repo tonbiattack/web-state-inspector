@@ -1,4 +1,5 @@
 import type { CookieEntry, CookieRequest, CookieResponse } from '../shared/types.js';
+import type { FrameInfo, FrameLifecycleEvent } from '../shared/types.js';
 
 function formatExpiry(expirationDate?: number): string {
   if (!expirationDate) return 'Session';
@@ -18,13 +19,120 @@ function toCookieEntry(cookie: chrome.cookies.Cookie): CookieEntry {
   };
 }
 
+// ── Frame tree cache ──────────────────────────────────────────────────────────
+// Keyed by tabId → Map<frameId, FrameInfo>.
+// Rebuilt from chrome.webNavigation.getAllFrames on demand and updated
+// incrementally on onCommitted events.
+const frameCache = new Map<number, Map<number, FrameInfo>>();
+
+function originFromUrl(url: string): string {
+  try { return new URL(url).origin; } catch { return url; }
+}
+
+function buildFrameInfo(tabId: number, frameId: number, parentFrameId: number, url: string): FrameInfo {
+  const isMainFrame = frameId === 0;
+  const origin = originFromUrl(url);
+  let isCrossOrigin: boolean | undefined;
+  if (!isMainFrame) {
+    const tabFrames = frameCache.get(tabId);
+    const mainFrame = tabFrames?.get(0);
+    if (mainFrame?.origin) {
+      isCrossOrigin = origin !== mainFrame.origin;
+    }
+  }
+  return {
+    frameId,
+    parentFrameId: frameId === 0 ? undefined : parentFrameId,
+    url,
+    origin,
+    isMainFrame,
+    isCrossOrigin,
+  };
+}
+
+async function refreshFrameCache(tabId: number): Promise<void> {
+  try {
+    const frames = await chrome.webNavigation.getAllFrames({ tabId });
+    if (!frames) return;
+    const map = new Map<number, FrameInfo>();
+    for (const frame of frames) {
+      map.set(frame.frameId, buildFrameInfo(tabId, frame.frameId, frame.parentFrameId, frame.url));
+    }
+    frameCache.set(tabId, map);
+  } catch {
+    // Tab may have closed; ignore.
+  }
+}
+
+function emitFrameLifecycleEvent(tabId: number, kind: 'frame-added' | 'frame-navigated' | 'frame-removed', frameInfo: FrameInfo, fromUrl?: string): void {
+  const event: FrameLifecycleEvent = {
+    id: `frame-${kind}-${tabId}-${String(frameInfo.frameId)}-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    performanceMs: 0,
+    kind,
+    frame: frameInfo,
+    summary: `${kind}: ${frameInfo.url}`,
+    fromUrl,
+    toUrl: kind !== 'frame-removed' ? frameInfo.url : undefined,
+  };
+  chrome.runtime.sendMessage({ type: 'FRAME_LIFECYCLE_EVENT', tabId, event }).catch(() => undefined);
+}
+
+// Listen for frame navigations and emit lifecycle events.
+chrome.webNavigation.onCommitted.addListener((details) => {
+  const { tabId, frameId, parentFrameId = -1, url } = details;
+  const tabFrames = frameCache.get(tabId);
+  const existing = tabFrames?.get(frameId);
+
+  const frameInfo = buildFrameInfo(tabId, frameId, parentFrameId, url);
+
+  if (!tabFrames) {
+    frameCache.set(tabId, new Map([[frameId, frameInfo]]));
+  } else {
+    tabFrames.set(frameId, frameInfo);
+  }
+
+  // Refresh full frame cache async to pick up sibling frames.
+  void refreshFrameCache(tabId);
+
+  if (existing) {
+    // Frame already known — this is a navigation within the frame.
+    emitFrameLifecycleEvent(tabId, 'frame-navigated', frameInfo, existing.url);
+  } else {
+    // New frame — emit frame-added.
+    emitFrameLifecycleEvent(tabId, 'frame-added', frameInfo);
+  }
+});
+
+// Detect frame removal by comparing frame snapshots when new navigations happen.
+// chrome.webNavigation has no direct "frame removed" event; we approximate by
+// rebuilding the cache and diffing against the previous snapshot.
+chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
+  const { tabId, frameId } = details;
+  if (frameId !== 0) return; // Only top-level navigations clear the frame tree significantly.
+  const tabFrames = frameCache.get(tabId);
+  if (!tabFrames) return;
+  // Emit frame-removed for all non-main iframes before the top-level navigation.
+  for (const [id, info] of tabFrames.entries()) {
+    if (id !== 0) emitFrameLifecycleEvent(tabId, 'frame-removed', info);
+  }
+  frameCache.delete(tabId);
+});
+
+// Clean up cache when a tab is closed.
+chrome.tabs.onRemoved.addListener((tabId) => { frameCache.delete(tabId); });
+
+// ── Existing cookie handler ───────────────────────────────────────────────────
+
 chrome.runtime.onMessage.addListener(
-  (message: CookieRequest, _sender, sendResponse: (response: CookieResponse) => void) => {
-    if (message?.type !== 'GET_COOKIES' || typeof message.url !== 'string') return;
+  (message: CookieRequest | { type: string }, _sender, sendResponse: (response: CookieResponse) => void) => {
+    if ((message as { type?: string }).type !== 'GET_COOKIES') return;
+    const cookieRequest = message as CookieRequest;
+    if (typeof cookieRequest.url !== 'string') return;
 
     let parsedUrl: URL;
     try {
-      parsedUrl = new URL(message.url);
+      parsedUrl = new URL(cookieRequest.url);
     } catch {
       sendResponse({ ok: false, error: 'このページのURLはCookie APIで利用できません。' });
       return;

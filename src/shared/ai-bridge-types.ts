@@ -6,7 +6,7 @@ export const AI_BRIDGE_DEFAULT_LIMIT = 50;
 export const AI_BRIDGE_MAX_LIMIT = 200;
 
 export type BridgeMethod = 'getSummary' | 'getErrors' | 'getNetworkErrors' | 'getTimeline';
-export type BridgeTimelineType = 'user-action' | 'route-change' | 'storage-change' | 'network' | 'error';
+export type BridgeTimelineType = 'user-action' | 'route-change' | 'storage-change' | 'network' | 'error' | 'frame-lifecycle';
 interface SummaryEventHint { timestamp: string; kind: string; summary: string; }
 export interface DebugSummary { recording: boolean; url: string; startedAt?: string; elapsedMs?: number; userActions: number; routeChanges: number; storageChanges: number; networkRequests: number; networkErrors: number; javascriptErrors: number; snapshots: number; firstNetworkError?: SummaryEventHint; firstJavaScriptError?: SummaryEventHint; firstSuspiciousEvent?: SummaryEventHint; }
 export interface BridgeRequest { source: 'web-state-inspector-page'; type: 'request'; requestId: string; method: BridgeMethod; params?: { limit?: number; eventTypes?: BridgeTimelineType[] }; }

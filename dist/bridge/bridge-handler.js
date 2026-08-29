@@ -4,18 +4,35 @@ function failure(requestId, code, message) { return { source: 'web-state-inspect
 function eventType(event) { if (event.kind === 'storage')
     return 'storage-change'; if (event.kind.startsWith('network-'))
     return 'network'; if (event.kind === 'user-action' || event.kind === 'route-change')
-    return event.kind; return 'error'; }
+    return event.kind; if (event.kind === 'frame-added' || event.kind === 'frame-navigated' || event.kind === 'frame-removed')
+    return 'frame-lifecycle'; return 'error'; }
+function firstNetworkError(events) {
+    return events.find((event) => event.kind === 'network-response' && ((typeof event.status === 'number' && (event.status === 0 || event.status >= 400)) || (event.summary?.startsWith('ERR '))));
+}
+function firstJavaScriptError(events) {
+    return events.find((event) => event.kind === 'javascript-error' || event.kind === 'console-error' || event.kind === 'promise-rejection');
+}
+function firstSuspiciousEvent(events) {
+    return firstNetworkError(events) ?? firstJavaScriptError(events) ?? events.find((event) => event.kind === 'storage' || event.kind === 'route-change');
+}
+function compactTimelineEvent(event) {
+    return { timestamp: event.timestamp, kind: event.kind, summary: event.summary };
+}
 export async function handleBridgeRequest(request, source) {
     if (!request || typeof request.requestId !== 'string' || !request.requestId || typeof request.method !== 'string')
         return failure(request?.requestId ?? '', 'INVALID_REQUEST', 'Bridge request is invalid.');
     const status = source.getStatus();
     if (!status.active)
-        return failure(request.requestId, 'NOT_RECORDING', 'Debug Recording is not running.');
+        return failure(request.requestId, 'NOT_RECORDING', 'Debug Recording is not running. Open Web State Inspector and start recording before requesting debug data.');
     const boundedLimit = limit(request.params?.limit);
     if (request.method === 'getSummary') {
         const [storageChanges] = await Promise.all([source.getStorageChanges()]);
         const network = source.getNetwork();
-        return { source: 'web-state-inspector-extension', type: 'response', requestId: request.requestId, success: true, data: { recording: status.active, url: source.getUrl(), startedAt: status.startedAt, elapsedMs: status.startedAt ? Math.max(0, Date.now() - Date.parse(status.startedAt)) : undefined, userActions: status.userActionCount, routeChanges: status.routeChangeCount, storageChanges: storageChanges.length, networkRequests: network.length, networkErrors: network.filter((entry) => Boolean(entry.error) || entry.status === 0 || entry.status >= 400).length, javascriptErrors: status.errorCount, snapshots: source.getSnapshotCount() } };
+        const timeline = source.getTimeline();
+        const firstNetwork = firstNetworkError(timeline);
+        const firstError = firstJavaScriptError(timeline);
+        const firstSuspicious = firstSuspiciousEvent(timeline);
+        return { source: 'web-state-inspector-extension', type: 'response', requestId: request.requestId, success: true, data: { recording: status.active, url: source.getUrl(), startedAt: status.startedAt, elapsedMs: status.startedAt ? Math.max(0, Date.now() - Date.parse(status.startedAt)) : undefined, userActions: status.userActionCount, routeChanges: status.routeChangeCount, storageChanges: storageChanges.length, networkRequests: network.length, networkErrors: network.filter((entry) => Boolean(entry.error) || entry.status === 0 || entry.status >= 400).length, javascriptErrors: status.errorCount, snapshots: source.getSnapshotCount(), firstNetworkError: firstNetwork ? compactTimelineEvent(firstNetwork) : undefined, firstJavaScriptError: firstError ? compactTimelineEvent(firstError) : undefined, firstSuspiciousEvent: firstSuspicious ? compactTimelineEvent(firstSuspicious) : undefined } };
     }
     if (request.method === 'getErrors')
         return { source: 'web-state-inspector-extension', type: 'response', requestId: request.requestId, success: true, data: source.getErrors().slice(-boundedLimit) };
@@ -23,7 +40,7 @@ export async function handleBridgeRequest(request, source) {
         return { source: 'web-state-inspector-extension', type: 'response', requestId: request.requestId, success: true, data: source.getNetwork().filter((entry) => Boolean(entry.error) || entry.status === 0 || entry.status >= 400).slice(-boundedLimit) };
     if (request.method === 'getTimeline') {
         const types = request.params?.eventTypes;
-        if (types && (!Array.isArray(types) || types.some((type) => !['user-action', 'route-change', 'storage-change', 'network', 'error'].includes(type))))
+        if (types && (!Array.isArray(types) || types.some((type) => !['user-action', 'route-change', 'storage-change', 'network', 'error', 'frame-lifecycle'].includes(type))))
             return failure(request.requestId, 'INVALID_REQUEST', 'eventTypes contains an unsupported value.');
         return { source: 'web-state-inspector-extension', type: 'response', requestId: request.requestId, success: true, data: source.getTimeline().filter((event) => !types || types.includes(eventType(event))).slice(-boundedLimit) };
     }

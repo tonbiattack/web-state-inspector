@@ -11,19 +11,38 @@ function code(value) {
 function truncate(value, length = 4_000) {
     return value.length > length ? `${value.slice(0, length)}\n[truncated for AI export]` : value;
 }
+function frameLabelForExport(event) {
+    const frame = event.frame;
+    if (!frame)
+        return '[Main]';
+    if (frame.isMainFrame)
+        return '[Main]';
+    try {
+        const parsed = new URL(frame.url);
+        const path = parsed.pathname === '/' ? parsed.hostname : parsed.pathname;
+        return `[iframe ${path.slice(0, 30)}]`;
+    }
+    catch {
+        return '[iframe]';
+    }
+}
 function eventLine(event) {
     const time = new Date(event.timestamp).toLocaleTimeString();
+    const framePrefix = `${frameLabelForExport(event)} `;
     if (event.kind === 'storage')
-        return `${time} STORAGE ${event.storage.storageArea}.${event.storage.key ?? 'clear'} ${event.storage.oldValue ?? 'null'} → ${event.storage.newValue ?? 'null'}`;
+        return `${time} ${framePrefix}STORAGE ${event.storage.storageArea}.${event.storage.key ?? 'clear'} ${event.storage.oldValue ?? 'null'} → ${event.storage.newValue ?? 'null'}`;
     if (event.kind === 'network-request')
-        return `${time} REQUEST ${event.method} ${event.url}`;
+        return `${time} ${framePrefix}REQUEST ${event.method} ${event.url}`;
     if (event.kind === 'network-response')
-        return `${time} RESPONSE ${event.status} ${event.method} ${event.url} (${event.durationMs} ms)`;
+        return `${time} ${framePrefix}RESPONSE ${event.status} ${event.method} ${event.url} (${event.durationMs} ms)`;
     if (event.kind === 'user-action')
-        return `${time} USER_ACTION ${event.actionType.toUpperCase()} ${event.target.selector}${event.key ? ` (${event.key})` : ''}`;
+        return `${time} ${framePrefix}USER_ACTION ${event.actionType.toUpperCase()} ${event.target.selector}${event.key ? ` (${event.key})` : ''}`;
     if (event.kind === 'route-change')
-        return `${time} ROUTE_CHANGE ${event.routeType} ${event.from} → ${event.to}`;
-    return `${time} ${event.kind.toUpperCase()} ${event.error.message}`;
+        return `${time} ${framePrefix}ROUTE_CHANGE ${event.routeType} ${event.from} → ${event.to}`;
+    if (event.kind === 'frame-added' || event.kind === 'frame-navigated' || event.kind === 'frame-removed')
+        return `${time} ${framePrefix}${event.kind.toUpperCase()} ${event.frame.url}${event.fromUrl ? ` (from: ${event.fromUrl})` : ''}`;
+    // Remaining cases are ErrorTimelineEvent kinds; summary === error.message for these events.
+    return `${time} ${framePrefix}${event.kind.toUpperCase()} ${event.summary}`;
 }
 function possiblyRelated(event, actions) {
     if (event.kind === 'user-action')
@@ -121,6 +140,19 @@ export function formatAiContextMarkdown(context) {
         context.storageChanges.length ? context.storageChanges.map(formatStorage).join('\n\n') : 'No Storage changes recorded.',
     ];
     sections.push('## Unified Timeline', timeline.length ? code(timeline.join('\n')) : 'No debug events recorded.');
+    // Frames section: list all distinct frames seen in the timeline.
+    const seenFrames = new Map();
+    for (const event of context.timeline) {
+        if (!event.frame)
+            continue;
+        const key = `${String(event.frame.frameId)}:${event.frame.url}`;
+        if (!seenFrames.has(key))
+            seenFrames.set(key, { url: event.frame.url, isMainFrame: event.frame.isMainFrame, isCrossOrigin: event.frame.isCrossOrigin });
+    }
+    if (seenFrames.size > 0) {
+        const frameLines = [...seenFrames.values()].map((f) => `- ${f.isMainFrame ? 'Main Frame' : 'iframe'}${f.isCrossOrigin ? ' (cross-origin)' : ''}: ${f.url}`);
+        sections.push('## Frames', frameLines.join('\n'));
+    }
     if (context.snapshots.diff) {
         const beforeLabel = context.snapshots.before?.label ?? 'Before';
         const afterLabel = context.snapshots.after?.label ?? 'After';

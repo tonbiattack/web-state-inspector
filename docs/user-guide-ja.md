@@ -18,6 +18,7 @@ Web State Inspectorは、Chrome DevToolsに追加する**読み取り専用のWe
 | [8. 制約とプライバシー](#8-制約とプライバシー) | 取得できない情報、上限、共有前の確認。 |
 | [9. サンプルでの検証](#9-サンプルでの検証) | 同梱ページでの一連の操作。 |
 | [10. トラブルシューティング](#10-トラブルシューティング) | よくある表示・取得上の問題。 |
+| [11. iframe対応](#11-iframe対応) | Frame Lifecycle、Frame Filter、Cross-Origin制約、既知の制限。 |
 
 ## 1. 導入
 
@@ -282,6 +283,28 @@ ChromeでこのURLを開き、DevToolsのWeb State Inspectorを選択してく�
 | Pinia / TanStack QueryがNot detected | 対象アプリが明示的な`window.__WEB_STATE_INSPECTOR__`ブリッジを公開していない状態です。内部API探索は行いません。 |
 | Capture Selected Elementが失敗する | 先にElementsパネルで対象ノードを選択してから、Capture Selected Elementを押します。 |
 | 限定Exportの選択肢がない | 4xx / 5xx、status 0、JavaScript Error、console.error、Promise rejectionを記録してから開きます。console.warn単独は選択対象外です。 |
+
+## 11. iframe対応
+
+Debug Recordingは、メインフレームだけでなくページ内のiframeも監視対象にできます。iframe内で発生したイベントも、Unified Timeline上でメインフレームのイベントと同じ時系列に統合されます。
+
+### 11.1 何が記録されるか
+
+* **Frame Lifecycle**: iframeの追加(Frame Added)・遷移(Frame Navigated)・削除(Frame Removed)を`chrome.webNavigation`経由で検知し、Timelineへ記録します。各イベントには`FrameInfo`(frameId、parentFrameId、url、origin、isMainFrame、isCrossOrigin)が付与されます。
+* **Cross-Origin JavaScriptエラー**: Same-Origin Policyにより詳細が取得できないエラー(ブラウザが`"Script error."`として報告するもの)は、推測で内容を補完せず、`Cross-origin error: Details unavailable`として明示的に記録します。
+* **Frame Filter**: Debug Timeline画面にFrame Filterのドロップダウンが追加されており、「All / Main Frame / 各iframe」で絞り込み表示できます。各Timeline行にはどのフレームで発生したかを示す小さなラベルが付きます。
+* **AI Export**: Copy for AIの出力には`## Frames`セクションが追加され、記録中に検出したMain Frameおよびiframeの一覧(URL付き)が含まれます。また各Timeline行には`[Main]`や`[iframe ...]`のようなフレームラベルが付与されます。
+
+### 11.2 既知の制限
+
+* **User Action / Storage Change / JavaScriptエラーそのものへのフレームタグ付け**: これらは現状、メインフレームからの`chrome.devtools.inspectedWindow.eval`によるポーリングで収集しているため、iframe内で発生した個別イベント自体に発生元frameのタグを付ける機能は未実装です(iframeごとに独立したcontent scriptからのイベントpush方式への再設計が必要なため、MVPスコープ外としています)。iframeの追加・遷移・削除自体(Frame Lifecycle)はTimelineに正しく統合されます。
+* **Frame Removedの検知**: Chrome拡張機能にはiframeが削除されたことを直接通知するAPIがないため、トップレベルページの遷移開始(`onBeforeNavigate`)をもって、その時点の子フレームをまとめて「削除」とみなす近似的な検知を行っています。ページ内でJavaScriptにより動的にiframeが削除されるケースは検知対象外です。
+* **Cross-Originのフレームアクセス**: 拡張機能のhost permissionが及ばない、あるいはブラウザのSame-Origin Policyにより取得できない情報は、推測で埋めず「取得不可」として扱います。権限は自動的に拡張されません。
+* **Service Workerの再起動**: フレームツリーの情報はService Worker上のメモリにキャッシュされているため、Manifest V3のService Workerが休止・再起動した場合、その間のフレーム情報が一時的に失われることがあります。
+
+### 11.3 動作確認用サンプル
+
+`sample/iframe-demo.html`(親ページ)と`sample/iframe-content.html`(Same-Origin iframe)を同梱しています。Debug Recording開始後、iframe内のボタン操作・Storage変更・Route Change・console.errorをそれぞれ発生させ、Unified Timelineに統合表示されること、Frame FilterでiframeだけをTimeline上で絞り込めること、Copy for AIの出力にFrame情報が含まれることを確認できます。
 
 ## 参考資料
 

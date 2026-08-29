@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Web State Inspector – iframe Demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.4rem; }
+    iframe { border: 2px solid #888; width: 100%; height: 220px; margin-top: 0.5rem; }
+    button { margin: 0.25rem 0.25rem 0.25rem 0; padding: 0.4rem 0.8rem; cursor: pointer; }
+    .card { background: #f5f5f5; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
+    code { background: #e8e8e8; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>Web State Inspector – iframe Demo</h1>
+  <div class="card">
+    <strong>Instructions:</strong> Open DevTools → Web State Inspector → Timeline.
+    Start Recording, then click the buttons below to fire events in the main frame
+    and inside the iframe. Observe the Frame column and the Frame filter dropdown.
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Main Frame actions</h2>
+    <button id="btn-ls">Write localStorage (main)</button>
+    <button id="btn-nav">pushState navigation</button>
+    <button id="btn-err">Throw JS error</button>
+    <p id="status-main">—</p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Same-origin iframe</h2>
+    <p>The iframe below loads <code>iframe-content.html</code> from the same origin.</p>
+    <iframe id="demo-iframe" src="iframe-content.html"></iframe>
+  </div>
+
+  <script>
+    document.getElementById('btn-ls').addEventListener('click', () => {
+      localStorage.setItem('iframe-demo-main', String(Date.now()));
+      document.getElementById('status-main').textContent = 'localStorage updated: ' + localStorage.getItem('iframe-demo-main');
+    });
+
+    document.getElementById('btn-nav').addEventListener('click', () => {
+      history.pushState({}, '', location.pathname + '?demo=' + Date.now());
+      document.getElementById('status-main').textContent = 'URL: ' + location.href;
+    });
+
+    document.getElementById('btn-err').addEventListener('click', () => {
+      try { throw new Error('Demo error from main frame'); } catch (e) { console.error(e); }
+    });
+  </script>
+</body>
+</html>

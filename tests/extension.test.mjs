@@ -11,9 +11,9 @@ test('配布物はManifest V3のDevTools拡張として組み立てられる', a
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.devtools_page, 'devtools.html');
   assert.equal(manifest.background.service_worker, 'background/service-worker.js');
-  assert.deepEqual(manifest.permissions, ['cookies']);
+  assert.deepEqual(manifest.permissions, ['cookies', 'webNavigation']);
   assert.deepEqual(manifest.host_permissions, ['<all_urls>']);
-  assert.deepEqual(manifest.content_scripts, [{ matches: ['<all_urls>'], js: ['bridge/content-bridge.js'], run_at: 'document_start', all_frames: false }]);
+  assert.deepEqual(manifest.content_scripts, [{ matches: ['<all_urls>'], js: ['bridge/content-bridge.js'], run_at: 'document_start', all_frames: true }]);
   assert.deepEqual(manifest.web_accessible_resources, [{ resources: ['bridge/page-bridge.js'], matches: ['<all_urls>'] }]);
   await stat(resolve(root, 'dist/panel/main.js'));
   await stat(resolve(root, 'dist/panel/page-evaluator.js'));
