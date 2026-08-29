@@ -6,6 +6,7 @@ import { createEventContextWindow, createFocusedEventWindow, DEFAULT_CONTEXT_AFT
 import { InteractionTracker } from './interaction-tracker.js';
 import { JsonExpansionState } from './json-expansion-state.js';
 import { matchesNetworkFilter } from './network-collector.js';
+import { formatNetworkExchange, networkBodyText } from './network-copy.js';
 import { compareRecordings } from './recording-analysis.js';
 import { handleBridgeRequest } from '../bridge/bridge-handler.js';
 import type { BridgeRequest, BridgeResponse } from '../shared/ai-bridge-types.js';
@@ -168,8 +169,8 @@ async function copyText(text: string, button?: HTMLButtonElement): Promise<void>
   }
 }
 
-function copyButton(text: string): HTMLButtonElement {
-  const button = element('button', 'action-button inline-copy', 'Copy');
+function copyButton(text: string, label = 'Copy'): HTMLButtonElement {
+  const button = element('button', 'action-button inline-copy', label);
   button.type = 'button';
   button.addEventListener('click', () => { void copyText(text, button); });
   return button;
@@ -883,11 +884,13 @@ function renderNetwork(): HTMLElement {
   for (const entry of entries) {
     const detailCell = element('td', 'value-cell');
     const details = element('details') as HTMLDetailsElement;
-    details.append(element('summary', undefined, 'Headers / body'));
+    details.append(element('summary', undefined, 'Headers / body'), copyButton(formatNetworkExchange(entry), 'Copy request / response'));
     details.append(element('h4', undefined, 'Request headers'), jsonView(entry.requestHeaders, false));
-    details.append(element('h4', undefined, 'Request body'), element('pre', 'value-text', entry.requestBody.available ? entry.requestBody.text ?? '' : `Not available: ${entry.requestBody.reason ?? 'Unknown reason.'}`));
+    details.append(element('h4', undefined, 'Request body'), element('pre', 'value-text', networkBodyText(entry.requestBody)));
     details.append(element('h4', undefined, 'Response headers'), jsonView(entry.responseHeaders, false));
-    details.append(element('h4', undefined, 'Response body'), element('pre', 'value-text', entry.responseBody.available ? entry.responseBody.text ?? '' : `Not available: ${entry.responseBody.reason ?? 'Unknown reason.'}`));
+    const responseBodyHeading = element('h4', undefined, 'Response body');
+    if (entry.responseBody.available) responseBodyHeading.append(copyButton(entry.responseBody.text ?? '', 'Copy response body'));
+    details.append(responseBodyHeading, element('pre', 'value-text', networkBodyText(entry.responseBody)));
     detailCell.append(details);
     const row = element('tr');
     const exportCell = element('td');

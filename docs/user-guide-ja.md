@@ -150,6 +150,8 @@ Unified Timelineは、Networkとページ側フックの`performance.now()`原�
 
 **Debug / Network**では、All、Fetch/XHR、Error only、4xx / 5xxで表示を絞り込めます。Network情報は`chrome.devtools.network.onRequestFinished`が提供する完了済みHAR情報を基にします。[6] response bodyは`getContent()`で得られたときだけ保存し、1件あたり最大100KiBで切り詰めます。HARにはrequest bodyが常に含まれるわけではないため、取得不可の場合は理由を表示します。
 
+各通信の **Headers / body** を開くと、**Copy request / response** でmethod、URL、status、headers、request body、response bodyをまとめてコピーできます。response bodyを取得できた通信では、**Copy response body** で本文だけをコピーできます。コピー処理はローカルのクリップボードだけを使い、値のマスクや外部送信は行いません。
+
 HTTP 404や500はFetchのPromiseを通常rejectしないため、通信失敗としてはstatusも確認してください。[7] Debug RecordingはStart Recording以降の完了Requestを対象にするため、DevToolsを開く前や記録開始前の通信は残っていない場合があります。
 
 **Debug / Errors**は、`error`、`unhandledrejection`、`console.error`、`console.warn`を表示します。`console.log`は記録しません。未処理Promise rejectionはグローバルの`unhandledrejection`として通知されますが、クロスorigin由来のrejectionはプライバシー制約により取得できない場合があります。[8]
