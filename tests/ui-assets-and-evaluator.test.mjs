@@ -74,6 +74,9 @@ test('パネルUIは要求されたナビゲーション、検索、Refresh、JS
   assert.match(source, /Resume updates/);
   assert.match(source, /Show related events/);
   assert.match(source, /networkUpdateState/);
+  assert.match(source, /event\.key !== 'F5'/);
+  assert.match(source, /chrome\.devtools\.inspectedWindow\.reload\(\)/);
+  assert.match(source, /isEditableShortcutTarget/);
   assert.match(source, /network-url-cell/);
   assert.match(source, /Copy URL/);
   const styles = await read('static/panel/styles.css');
