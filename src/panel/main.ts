@@ -75,6 +75,17 @@ const root = document.querySelector<HTMLDivElement>('#app');
 if (!root) throw new Error('Panel root was not found.');
 const appRoot: HTMLDivElement = root;
 
+function isEditableShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'F5' || isEditableShortcutTarget(event.target)) return;
+  event.preventDefault();
+  chrome.devtools.inspectedWindow.reload();
+});
+
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (response: BridgeResponse) => void) => {
   const envelope = message as { type?: string; request?: BridgeRequest; tabId?: number; event?: TimelineEvent };
   // Handle frame lifecycle events forwarded from the background service worker.
