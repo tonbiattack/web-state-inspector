@@ -40,20 +40,16 @@ test('Manifestのアイコン指定と配布物の各PNGサイズが一致する
 test('パネルUIは要求されたナビゲーション、検索、Refresh、JSONコピーを持つ', async () => {
   const source = await read('src/panel/main.ts');
   const navigation = source.slice(source.indexOf('const navItems'), source.indexOf('const labels'));
-  for (const label of ['Timeline', 'Network', 'Snapshots', 'AI Export', 'Storage', 'Cookies', 'Framework State']) {
+  for (const label of ['Timeline', 'Network', 'AI Export', 'Storage', 'Cookies', 'Framework State']) {
     assert.match(navigation, new RegExp(`label: '${label}'`));
   }
-  for (const removed of ['State Change Timeline', 'Errors', 'Recordings', 'Compare', 'IndexedDB', 'Cache Storage', 'Pinia', 'TanStack Query']) assert.doesNotMatch(navigation, new RegExp(`label: '${removed}'`));
+  for (const removed of ['State Change Timeline', 'Errors', 'Recordings', 'Compare', 'Snapshots', 'IndexedDB', 'Cache Storage', 'Pinia', 'TanStack Query']) assert.doesNotMatch(navigation, new RegExp(`label: '${removed}'`));
   assert.match(source, /'Refresh'/);
   assert.match(source, /Search key \/ value/);
   assert.match(source, /navigator\.clipboard\.writeText/);
   assert.match(source, /JSON を表示/);
   assert.match(source, /experimental: true/);
   assert.match(source, /Start Recording/);
-  assert.match(source, /Capture Snapshot 1/);
-  assert.match(source, /Capture Snapshot 2/);
-  assert.match(source, /'Diff'/);
-  assert.match(source, /Raw Snapshot 1/);
   assert.match(source, /Copy for AI/);
   assert.match(source, /Fetch\/XHR/);
   assert.match(source, /User Action/);
