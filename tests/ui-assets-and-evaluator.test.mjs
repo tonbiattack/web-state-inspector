@@ -69,6 +69,9 @@ test('パネルUIは要求されたナビゲーション、検索、Refresh、JS
   assert.match(source, /Seconds before/);
   assert.match(source, /Seconds after/);
   assert.match(source, /Copy focused context/);
+  assert.match(source, /Copy event context/);
+  assert.match(source, /前5秒・後2秒の関連データ/);
+  assert.doesNotMatch(source, /'Copy Context'/);
   assert.doesNotMatch(source, /\.innerHTML\s*=/);
 });
 
