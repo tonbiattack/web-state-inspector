@@ -1,4 +1,4 @@
-import { formatAiContextJson, formatAiContextMarkdown, createAiDebugContext } from './ai-export.js';
+import { formatAiContextJson, formatAiContextMarkdown, formatEventContextMarkdown, createAiDebugContext } from './ai-export.js';
 import { ChangeTracker } from './change-tracker.js';
 import { DebugSession } from './debug-session.js';
 import { ErrorCollector } from './error-collector.js';
@@ -1302,7 +1302,7 @@ async function copyEventContext(event: TimelineEvent, button: HTMLButtonElement)
   button.disabled = true;
   button.textContent = 'Preparing…';
   const context = await buildAiContext(event);
-  await copyText(formatAiContextMarkdown(context), button);
+  await copyText(formatEventContextMarkdown(context), button);
   button.disabled = false;
 }
 
