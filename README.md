@@ -23,6 +23,8 @@
 
 詳細な画面操作、同梱デモによる確認手順、AI Exportの使い分け、取得範囲と注意事項は[詳細操作ガイド](docs/user-guide-ja.md)を参照してください。
 
+Chrome拡張のcontent scriptとES moduleの実行形式が噛み合わずに起きた`Unexpected token 'export'`については、[障害原因の学習資料](docs/classic-script-bridge-incident-ja.md)に原因、iframe対応との関係、修正、検証方法をまとめています。
+
 ## インストール
 
 1. このリポジトリをcloneするか、配布済みの`dist/`フォルダを入手します。
