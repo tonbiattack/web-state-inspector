@@ -154,6 +154,8 @@ Timeline行を選ぶと、選択イベントを中心に前5秒・後2秒の **R
 
 各通信の **Headers / body** を開くと、**Copy request / response** でmethod、URL、status、headers、request body、response bodyをまとめてコピーできます。response bodyを取得できた通信では、**Copy response body** で本文だけをコピーできます。コピー処理はローカルのクリップボードだけを使い、値のマスクや外部送信は行いません。
 
+Debug Recording中はNetwork一覧が更新されますが、開いた **Headers / body** の状態は通信ごとに維持されます。そのため、記録を止めずに本文を確認してコピーできます。
+
 HTTP 404や500はFetchのPromiseを通常rejectしないため、通信失敗としてはstatusも確認してください。[7] Debug RecordingはStart Recording以降の完了Requestを対象にするため、DevToolsを開く前や記録開始前の通信は残っていない場合があります。
 
 **Debug / Errors**は、`error`、`unhandledrejection`、`console.error`、`console.warn`を表示します。`console.log`は記録しません。未処理Promise rejectionはグローバルの`unhandledrejection`として通知されますが、クロスorigin由来のrejectionはプライバシー制約により取得できない場合があります。[8]

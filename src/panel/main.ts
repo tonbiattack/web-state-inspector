@@ -884,7 +884,14 @@ function renderNetwork(): HTMLElement {
   for (const entry of entries) {
     const detailCell = element('td', 'value-cell');
     const details = element('details') as HTMLDetailsElement;
-    details.append(element('summary', undefined, 'Headers / body'), copyButton(formatNetworkExchange(entry), 'Copy request / response'));
+    const expansionKey = `network-details:${entry.id}`;
+    details.open = jsonExpansionState.isExpanded(expansionKey);
+    const summary = element('summary', undefined, 'Headers / body');
+    // Recording refreshes this table every 500ms. Remember the state before the
+    // old DOM is replaced so a user can read and copy a body while recording.
+    summary.addEventListener('click', () => { jsonExpansionState.setExpanded(expansionKey, !details.open); });
+    details.addEventListener('toggle', () => { jsonExpansionState.setExpanded(expansionKey, details.open); });
+    details.append(summary, copyButton(formatNetworkExchange(entry), 'Copy request / response'));
     details.append(element('h4', undefined, 'Request headers'), jsonView(entry.requestHeaders, false));
     details.append(element('h4', undefined, 'Request body'), element('pre', 'value-text', networkBodyText(entry.requestBody)));
     details.append(element('h4', undefined, 'Response headers'), jsonView(entry.responseHeaders, false));

@@ -34,3 +34,12 @@ test('Storage JSONビューは開閉イベントを状態管理へ同期し、�
   assert.match(source, /jsonExpansionState\.setExpanded\(expansionKey, details\.open\)/);
   assert.match(source, /jsonView\(entry\.parsedValue, true, `storage-json:\$\{state\.selected\}:\$\{entry\.key\}`\)/);
 });
+
+test('Network詳細はRecording中の再描画後も開閉状態を維持する', async () => {
+  const source = await readFile(resolve(root, 'src/panel/main.ts'), 'utf8');
+
+  assert.match(source, /const expansionKey = `network-details:\$\{entry\.id\}`/);
+  assert.match(source, /details\.open = jsonExpansionState\.isExpanded\(expansionKey\)/);
+  assert.match(source, /summary\.addEventListener\('click', \(\) => \{ jsonExpansionState\.setExpanded\(expansionKey, !details\.open\); \}\)/);
+  assert.match(source, /details\.addEventListener\('toggle', \(\) => \{ jsonExpansionState\.setExpanded\(expansionKey, details\.open\); \}\)/);
+});
