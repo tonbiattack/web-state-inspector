@@ -65,9 +65,25 @@ function formatError(error, index) {
     const source = error.sourceUrl ? `${error.sourceUrl}${error.line ? `:${error.line}${error.column ? `:${error.column}` : ''}` : ''}` : 'Not available';
     return `### Error ${index + 1}\n\nKind: ${error.kind}\n\nMessage: ${error.message}\n\nSource: ${source}\n\nStack:\n\n${code(error.stack.join('\n') || 'Not available')}`;
 }
-function formatNetwork(entry, index) {
+function formatNetwork(entry, index, concise = false) {
+    if (concise) {
+        return `### ${index + 1}. ${entry.method} ${entry.url}\n\nStatus: ${entry.status || 'Not available'} ${entry.statusText}\n\nDuration: ${entry.durationMs} ms\n\nType: ${entry.resourceType ?? 'Not available'}\n\nRequest headers: ${entry.requestHeaders.length} captured\n\nResponse headers: ${entry.responseHeaders.length} captured\n\nRequest / response bodies are available from the Network row when needed.`;
+    }
     const response = entry.responseBody.available ? code(truncate(entry.responseBody.text ?? '')) : `Not available: ${entry.responseBody.reason ?? 'Unknown reason.'}`;
     return `### ${index + 1}. ${entry.method} ${entry.url}\n\nStatus: ${entry.status || 'Not available'} ${entry.statusText}\n\nDuration: ${entry.durationMs} ms\n\nType: ${entry.resourceType ?? 'Not available'}\n\nRequest headers:\n\n${code(entry.requestHeaders)}\n\nRequest body:\n\n${entry.requestBody.available ? code(truncate(entry.requestBody.text ?? '')) : `Not available: ${entry.requestBody.reason ?? 'Unknown reason.'}`}\n\nResponse headers:\n\n${code(entry.responseHeaders)}\n\nResponse body:\n\n${response}`;
+}
+function selectedEventSummary(event) {
+    if (event.kind === 'network-request')
+        return `REQUEST ${event.method} ${event.url}`;
+    if (event.kind === 'network-response')
+        return `RESPONSE ${event.status} ${event.method} ${event.url} (${event.durationMs} ms)`;
+    if (event.kind === 'storage')
+        return `STORAGE ${event.storage.storageArea}.${event.storage.key ?? 'clear'}: ${event.storage.oldValue ?? 'null'} → ${event.storage.newValue ?? 'null'}`;
+    if (event.kind === 'user-action')
+        return `${event.actionType.toUpperCase()} ${event.target.selector}`;
+    if (event.kind === 'route-change')
+        return `ROUTE ${event.from} → ${event.to}`;
+    return `ERROR ${event.summary}`;
 }
 function formatStorage(change, index) {
     return `### Storage change ${index + 1}\n\nArea: ${change.storageArea}\n\nOperation: ${change.operation}\n\nKey: ${change.key ?? 'clear'}\n\nBefore:\n\n${code(change.oldValue ?? 'null')}\n\nAfter:\n\n${code(change.newValue ?? 'null')}\n\nWhere:\n\n${code(change.stack.join('\n') || change.externalUrl || 'Not available')}`;
@@ -117,9 +133,11 @@ export function formatAiContextMarkdown(context) {
     const comparison = context.comparison;
     const divergence = comparison?.firstDivergence;
     const debugSummary = comparison?.suspiciousEvents.map((item) => `${item.reason}: ${eventLine(item.event)}${item.previous ? `\nPrevious: ${eventLine(item.previous)}` : ''}`).join('\n\n');
+    const selectedContext = context.eventContext ?? context.focusedEvent;
     const sections = [
         '# Web Debug Context',
         '> Review this exported context for secrets, tokens, personal data, and customer data before sharing it with any AI service. “Possibly related” means temporal proximity only; it does not prove causality.',
+        ...(selectedContext ? ['## Selected Event', `${selectedEventSummary(selectedContext.anchor)}\n\nTime: ${selectedContext.anchor.timestamp}\n\nContext window: ${selectedContext.beforeMs / 1000}s before → ${selectedContext.afterMs / 1000}s after`] : []),
         '## Reproduction Notes',
         `Expected Result:\n\n${notes.expectedResult || 'Not provided'}\n\nActual Result:\n\n${notes.actualResult || 'Not provided'}\n\nReproduction Steps:\n\n${notes.reproductionSteps || 'Not provided'}\n\nAdditional Notes:\n\n${notes.additionalNotes || 'Not provided'}`,
         ...(debugSummary ? ['## Debug Summary', debugSummary] : []),
@@ -130,7 +148,7 @@ export function formatAiContextMarkdown(context) {
         '## JavaScript and Console Events',
         context.errors.length ? context.errors.map(formatError).join('\n\n') : 'No JavaScript or console events recorded.',
         '## Network Errors',
-        failedNetwork.length ? failedNetwork.map(formatNetwork).join('\n\n') : 'No failed network requests recorded.',
+        failedNetwork.length ? failedNetwork.map((entry, index) => formatNetwork(entry, index, Boolean(selectedContext))).join('\n\n') : 'No failed network requests recorded.',
         ...(comparison?.networkDifferences.length ? ['## Network Differences', comparison.networkDifferences.map((item) => `### ${item.key}\n\n${item.differences.map((diff) => `${diff.path}\n- ${JSON.stringify(diff.before)}\n+ ${JSON.stringify(diff.after)}`).join('\n\n')}`).join('\n\n')] : []),
         '## User Actions',
         context.userActions.length ? context.userActions.map(formatAction).join('\n\n') : 'No user actions recorded.',

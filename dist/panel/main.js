@@ -39,6 +39,7 @@ let focusedEventId;
 let focusedBeforeMs = DEFAULT_CONTEXT_BEFORE_MS;
 let focusedAfterMs = DEFAULT_CONTEXT_AFTER_MS;
 let selectedTimelineEventId;
+let timelineFocusEventId;
 let timelineView = 'all';
 /** 'all' = no frame filter, 'main' = main frame only, any other string = specific frame URL */
 let timelineFrameFilter = 'all';
@@ -376,8 +377,12 @@ function setBody(content) {
     const body = document.querySelector('#content-body');
     if (!body)
         return;
+    const scrollHost = body.parentElement;
+    const scrollTop = scrollHost?.scrollTop ?? 0;
     clear(body);
     body.append(content);
+    if (scrollHost && !timelineFocusEventId)
+        scrollHost.scrollTop = scrollTop;
 }
 function renderIndexedDatabases(databases) {
     const section = element('section');
@@ -739,6 +744,21 @@ function timelineIcon(event) {
         return '⊖';
     return isFailureTimelineEvent(event) ? '✕' : '!';
 }
+function timelineTypeLabel(event) {
+    if (event.kind === 'user-action')
+        return event.actionType.toUpperCase();
+    if (event.kind === 'route-change')
+        return 'ROUTE';
+    if (event.kind === 'storage')
+        return 'STORAGE';
+    if (event.kind === 'network-request')
+        return 'REQUEST';
+    if (event.kind === 'network-response')
+        return 'RESPONSE';
+    if (event.kind === 'frame-added' || event.kind === 'frame-navigated' || event.kind === 'frame-removed')
+        return 'FRAME';
+    return 'ERROR';
+}
 /** Short label for a frame, used in UI badges and AI export. */
 function frameLabel(event) {
     const frame = event.frame;
@@ -841,8 +861,12 @@ function renderDebugTimeline() {
         return section;
     }
     const { table, body } = createTable(['When', 'Frame', 'Type', 'Summary', 'Context']);
+    let focusedRow;
     for (const event of events) {
-        const row = element('tr', `${isImportantTimelineEvent(event, allTimeline) ? 'important-event' : ''}${event.id === selectedTimelineEventId ? ' selected-event' : ''}`);
+        const row = element('tr', `${isImportantTimelineEvent(event, allTimeline) ? 'important-event' : ''}${isFailureTimelineEvent(event) ? ' failure-event' : ''}${event.id === selectedTimelineEventId ? ' selected-event' : ''}`);
+        row.dataset.timelineEventId = event.id;
+        if (event.id === timelineFocusEventId)
+            focusedRow = row;
         row.tabIndex = 0;
         row.addEventListener('click', () => { selectedTimelineEventId = event.id; renderCurrentData(); });
         row.addEventListener('keydown', (key) => { if (key.key === 'Enter' || key.key === ' ') {
@@ -858,13 +882,20 @@ function renderDebugTimeline() {
         const frameBadge = element('td', 'key-cell frame-badge', frameLabel(event));
         if (event.frame?.isCrossOrigin)
             frameBadge.title = 'Cross-origin frame';
-        row.append(element('td', undefined, formatTime(event.timestamp)), frameBadge, element('td', 'key-cell', `${timelineIcon(event)} ${event.kind}`), element('td', 'value-cell', timelineDetails(event)), contextCell);
+        row.append(element('td', undefined, formatTime(event.timestamp)), frameBadge, element('td', 'key-cell timeline-type', `${timelineIcon(event)} ${timelineTypeLabel(event)}`), element('td', 'value-cell', timelineDetails(event)), contextCell);
         body.append(row);
     }
     section.append(table);
     const context = renderSelectedTimelineContext(allTimeline);
     if (context)
         section.append(context);
+    if (focusedRow) {
+        window.requestAnimationFrame(() => {
+            focusedRow?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            focusedRow?.focus({ preventScroll: true });
+            timelineFocusEventId = undefined;
+        });
+    }
     return section;
 }
 function renderNetwork() {
@@ -928,6 +959,7 @@ function renderNetwork() {
         related.type = 'button';
         related.addEventListener('click', () => {
             selectedTimelineEventId = `${entry.id}-response`;
+            timelineFocusEventId = selectedTimelineEventId;
             state.selected = 'debug-timeline';
             state.query = '';
             renderCurrentData();
