@@ -40,12 +40,12 @@ Cookie、Authorization header、token、request / response body、個人情報�
 
 ## 提出用画像（公開前ゲート）
 
-現在のビルドを読み込んだ Chrome で、ローカル sample page を検査してから撮影する。次の各 1280 × 800 PNG を提出用に用意する。
+現在のビルドを読み込んだ Chrome で、ローカル sample page を検査してから撮影する。現在、次の3枚を `docs/chrome-web-store/assets/screenshots/1.png` から `3.png` として生成済みである。
 
-1. Timeline 全体
-2. エラーを選択し、前後のイベントを表示した状態
-3. Network 詳細
-4. AI Export と機密情報警告
-5. Storage / Cookie Inspector
+1. Timeline 全体（ユーザー操作・通信・エラーを時系列で表示）
+2. Network 詳細（成功・失敗したローカル sample の通信）
+3. AI Export と機密情報警告
+
+Storage / Cookie Inspector のローカル生キャプチャは `docs/img/` に保管している。Store が追加の画像を求める場合だけ、同じ手順で4枚目以降を生成する。
 
 実在サービスの Cookie、token、個人情報、社内 URL は含めない。旧 UI や外部サイトを含むキャプチャは Store へ提出しない。

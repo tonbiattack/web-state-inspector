@@ -38,6 +38,16 @@ try {
 
     & $scriptPath -IconSource $iconPath -ScreenshotSources $screenshotPaths -OutputRoot $outputRoot
 
+    $topBannerOutputRoot = Join-Path $temporaryRoot 'top-banner-output'
+    & $scriptPath -IconSource $iconPath -ScreenshotSources $screenshotPaths -OutputRoot $topBannerOutputRoot -Layout TopBanner -BrandName 'Example Inspector' -Tagline 'Local DevTools' -CaptionTitles @('Timeline', 'Network', 'Export') -CaptionBodies @('Recorded local activity', 'Local request details', 'Review before sharing')
+    $topBanner = [System.Drawing.Bitmap]::new((Join-Path $topBannerOutputRoot 'screenshots\1.png'))
+    try {
+        if ($topBanner.GetPixel(10, 10).R -eq 15 -and $topBanner.GetPixel(10, 10).G -eq 23 -and $topBanner.GetPixel(10, 10).B -eq 42) {
+            throw 'Top-banner layout must render a visible explanatory header.'
+        }
+    }
+    finally { $topBanner.Dispose() }
+
     $expected = @{
         'store-icon-128.png' = @(128, 128)
         'screenshots\1.png' = @(1280, 800)

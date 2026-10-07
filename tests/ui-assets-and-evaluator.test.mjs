@@ -37,6 +37,23 @@ test('Manifestのアイコン指定と配布物の各PNGサイズが一致する
   await assert.rejects(stat(resolve(root, 'dist/icons/icon-master.png')));
 });
 
+test('Chrome Web Store 提出素材はローカルサンプル由来の番号付きPNGである', async () => {
+  for (const relativePath of [
+    'docs/chrome-web-store/source/1.png',
+    'docs/chrome-web-store/source/2.png',
+    'docs/chrome-web-store/source/3.png',
+    'docs/chrome-web-store/assets/store-icon-128.png',
+    'docs/chrome-web-store/assets/screenshots/1.png',
+    'docs/chrome-web-store/assets/screenshots/2.png',
+    'docs/chrome-web-store/assets/screenshots/3.png',
+  ]) {
+    const expected = relativePath.endsWith('store-icon-128.png')
+      ? { width: 128, height: 128 }
+      : { width: 1280, height: 800 };
+    assert.deepEqual(await pngDimensions(relativePath), expected);
+  }
+});
+
 test('パネルUIは要求されたナビゲーション、検索、Refresh、JSONコピーを持つ', async () => {
   const source = await read('src/panel/main.ts');
   const navigation = source.slice(source.indexOf('const navItems'), source.indexOf('const labels'));

@@ -1,6 +1,6 @@
 ---
 name: chrome-web-store-assets
-description: Use when preparing or refreshing Arrow Button Mapper Chrome Web Store icons and screenshots, especially when transparent icon edges or excessive screenshot side margins need a consistent treatment.
+description: Use when preparing or refreshing Chrome Web Store icons and screenshots from real extension UI captures, especially when transparent icon edges or excessive screenshot margins need consistent treatment.
 ---
 
 # Chrome Web Store Assets
@@ -14,7 +14,7 @@ Keep source captures outside the generated asset paths. The script writes only:
 - `store-icon-128.png` — 128×128 PNG with opaque white corners.
 - `screenshots/1.png` through `3.png` — 1280×800, 24-bit RGB PNGs.
 
-The icon source must be a transparent 128×128 PNG. Each screenshot source must be an uncropped 1280×800 PNG. By default, the popup is cropped from `(365, 16)` at `550×754`; change the `UiCrop*` parameters if a fresh capture places the popup elsewhere.
+The icon source must be a transparent 128×128 PNG. Each screenshot source must be an uncropped 1280×800 PNG. `SidePanel` is the default layout for compact popup UI and crops from `(365, 16)` at `550×754`; change the `UiCrop*` parameters when needed. Use `TopBanner` for full-width DevTools UI: it reserves a factual 120px headline and retains the paired screenshot below it.
 
 ## Compose
 
@@ -28,12 +28,16 @@ $sourceScreenshots = @(
 )
 
 powershell -NoProfile -ExecutionPolicy Bypass -File skills\chrome-web-store-assets\scripts\compose-store-assets.ps1 `
-  -IconSource icons\icon-128.png `
+  -IconSource static\icons\icon-128.png `
   -ScreenshotSources $sourceScreenshots `
+  -Layout TopBanner `
+  -BrandName 'Web State Inspector' `
+  -CaptionTitles @('Timeline で時系列を確認', 'Network の成功・失敗を確認', 'AI Export 前に内容を確認') `
+  -CaptionBodies @('ローカル sample page で記録した操作・通信・エラー', 'ローカル sample page のリクエスト一覧と詳細', '外部送信せずローカルでデバッグ文脈を整形') `
   -OutputRoot (Join-Path $env:TEMP 'arrow-button-mapper-store-assets-preview')
 ```
 
-Review this preview before omitting `-OutputRoot`, which writes to `docs\chrome-web-store\assets`. `-IconInset` changes the white outer margin. The three Japanese captions are the `$captions` array in the script.
+Review this preview before omitting `-OutputRoot`, which writes to `docs\chrome-web-store\assets`. `-IconInset` changes the white outer margin. Pass `-BrandName`, `-Tagline`, `-CaptionTitles`, and `-CaptionBodies` for the actual product; never retain another product's captions.
 
 The script flattens low-alpha edge pixels to white before resizing. Keep that step: the source icon has semi-transparent dark pixels that otherwise create a gray square on the Store's white backdrop.
 
