@@ -1312,6 +1312,13 @@ function startDebugPolling() {
         });
     }, 500);
 }
+function setFrameTracking(active, reset = false) {
+    void chrome.runtime.sendMessage({ type: 'SET_FRAME_TRACKING', tabId: chrome.devtools.inspectedWindow.tabId, active, reset });
+}
+window.addEventListener('pagehide', () => {
+    if (debugSession.getStatus().active)
+        setFrameTracking(false);
+});
 async function startDebugRecording() {
     setBody(renderUnavailable('User Action、Route Change、Storage、Network、Errorの記録を開始しています。'));
     const result = await debugSession.start();
@@ -1319,12 +1326,14 @@ async function startDebugRecording() {
         setBody(renderUnavailable(result.error ?? 'Debug Recordingを開始できません。', true));
         return;
     }
+    setFrameTracking(true, true);
     changeTrackingActive = true;
     syncStoragePolling();
     startDebugPolling();
     renderCurrentData();
 }
 async function stopDebugRecording() {
+    setFrameTracking(false);
     const result = await debugSession.stop();
     if (!result.ok) {
         setBody(renderUnavailable(result.error ?? 'Debug Recordingを停止できません。', true));
@@ -1341,6 +1350,8 @@ async function clearDebugRecording() {
         setBody(renderUnavailable(result.error ?? 'Debug Recordingを消去できません。', true));
         return;
     }
+    if (debugSession.getStatus().active)
+        setFrameTracking(true, true);
     renderCurrentData();
 }
 function stopTrackingPolling() {

@@ -1351,6 +1351,14 @@ function startDebugPolling(): void {
   }, 500);
 }
 
+function setFrameTracking(active: boolean, reset = false): void {
+  void chrome.runtime.sendMessage({ type: 'SET_FRAME_TRACKING', tabId: chrome.devtools.inspectedWindow.tabId, active, reset });
+}
+
+window.addEventListener('pagehide', () => {
+  if (debugSession.getStatus().active) setFrameTracking(false);
+});
+
 async function startDebugRecording(): Promise<void> {
   setBody(renderUnavailable('User Action、Route Change、Storage、Network、Errorの記録を開始しています。'));
   const result = await debugSession.start();
@@ -1358,6 +1366,7 @@ async function startDebugRecording(): Promise<void> {
     setBody(renderUnavailable(result.error ?? 'Debug Recordingを開始できません。', true));
     return;
   }
+  setFrameTracking(true, true);
   changeTrackingActive = true;
   syncStoragePolling();
   startDebugPolling();
@@ -1365,6 +1374,7 @@ async function startDebugRecording(): Promise<void> {
 }
 
 async function stopDebugRecording(): Promise<void> {
+  setFrameTracking(false);
   const result = await debugSession.stop();
   if (!result.ok) {
     setBody(renderUnavailable(result.error ?? 'Debug Recordingを停止できません。', true));
@@ -1382,6 +1392,7 @@ async function clearDebugRecording(): Promise<void> {
     setBody(renderUnavailable(result.error ?? 'Debug Recordingを消去できません。', true));
     return;
   }
+  if (debugSession.getStatus().active) setFrameTracking(true, true);
   renderCurrentData();
 }
 

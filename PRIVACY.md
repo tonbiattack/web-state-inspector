@@ -29,7 +29,7 @@ After copied text is pasted into an AI service, issue tracker, chat, or any othe
 
 ## Chrome permissions and Limited Use
 
-The extension requests `cookies` and access to inspected web origins only to provide the read-only Cookie Inspector for the page you opened in DevTools. It uses `webNavigation` only to record main-frame and iframe lifecycle events in the debugging timeline. Its content bridge runs in inspected pages so it can observe the user actions, route changes, storage changes, and errors that make up that timeline.
+The extension requests `cookies` and access to inspected web origins only to provide the read-only Cookie Inspector for the page you opened in DevTools. It uses `webNavigation` only while a recording is active for that inspected tab, to record main-frame and iframe lifecycle events in the debugging timeline. Its content bridge is installed in web pages to support DevTools inspection, but it does not retain page data or send it to an external service; recording data is processed only after you start recording for the inspected tab.
 
 Web State Inspector's use of information received from Chrome APIs complies with the [Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/user-data), including the Limited Use requirements.
 

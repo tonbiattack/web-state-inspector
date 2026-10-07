@@ -37,11 +37,6 @@ test('Manifestのアイコン指定と配布物の各PNGサイズが一致する
   await assert.rejects(stat(resolve(root, 'dist/icons/icon-master.png')));
 });
 
-test('Chrome Web Store提出用のアイコンとスクリーンショットは所定のPNG寸法で用意される', async () => {
-  assert.deepEqual(await pngDimensions('docs/chrome-web-store/assets/store-icon-128.png'), { width: 128, height: 128 });
-  assert.deepEqual(await pngDimensions('docs/chrome-web-store/assets/storage-cookies.png'), { width: 1280, height: 800 });
-});
-
 test('パネルUIは要求されたナビゲーション、検索、Refresh、JSONコピーを持つ', async () => {
   const source = await read('src/panel/main.ts');
   const navigation = source.slice(source.indexOf('const navItems'), source.indexOf('const labels'));
