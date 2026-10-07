@@ -2,7 +2,7 @@
 
 Chrome DevTools に追加する、**イベントの前後関係を集めて AI に渡す**ためのローカル専用デバッグ拡張です。DevTools の代替ではありません。操作・状態変更・通信・例外を Timeline にまとめ、調べたいイベントの周辺だけをコピーできます。
 
-外部 API、サーバー、AI サービスには送信しません。Copy 操作でクリップボードへ出した内容だけが外部へ渡り得るため、貼り付け前に機密情報を確認してください。
+外部 API、サーバー、AI サービスには送信しません。Copy 操作でクリップボードへ出した内容だけが外部へ渡り得るため、貼り付け前に機密情報を確認してください。AI Export は AI サービスを呼び出さず、収集済みのデバッグ文脈をローカルで Markdown / JSON に整形する機能です。
 
 ## できること
 
@@ -91,6 +91,9 @@ node scripts/serve.mjs
 
 ## 関連資料
 
+- [Privacy Policy](PRIVACY.md)
+- [Chrome Web Store 掲載情報](docs/chrome-web-store-listing-ja.md)
+- [Issue tracker](https://github.com/tonbiattack/web-state-inspector/issues)（Cookie、token、Authorization、request / response body などの機密情報は投稿しないでください）
 - [classic script bridge の `Unexpected token 'export'` 障害資料](docs/classic-script-bridge-incident-ja.md)
 - [詳細操作ガイド](docs/user-guide-ja.md)
 

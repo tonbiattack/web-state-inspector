@@ -11,6 +11,7 @@ import { NetworkUpdateState } from './network-update-state.js';
 import { compareRecordings } from './recording-analysis.js';
 import { handleBridgeRequest } from '../bridge/bridge-handler.js';
 import type { BridgeRequest, BridgeResponse } from '../shared/ai-bridge-types.js';
+import { getExportSafetyNotice } from '../shared/export-safety-notice.js';
 import { PageEvaluator } from './page-evaluator.js';
 import { emptyReproductionNotes, normalizeReproductionNotes } from './reproduction-notes.js';
 import { SelectedElementService } from './selected-element-service.js';
@@ -829,7 +830,7 @@ function renderSelectedTimelineContext(timeline: TimelineEvent[]): HTMLElement |
     return `${when}  ${timelineIcon(event)} ${event.kind}  ${timelineDetails(event).replace(/\n/g, ' ')}`;
   }).join('\n')));
   const copy = element('button', 'action-button', 'Copy event context'); copy.type = 'button'; copy.addEventListener('click', () => { void copyEventContext(selected, copy); });
-  section.append(copy);
+  section.append(element('div', 'notice warning', getExportSafetyNotice()), copy);
   return section;
 }
 
@@ -1203,7 +1204,7 @@ function renderAiExport(): HTMLElement {
   const section = element('section');
   const status = debugSession.getStatus();
   const timeline = debugSession.getTimeline();
-  section.append(element('div', 'notice warning', 'Copy for AIは外部送信を行いません。貼り付け前にCookie、Authorization、token、個人情報、顧客情報などの機密情報を必ず確認してください。'));
+  section.append(element('div', 'notice warning', getExportSafetyNotice()));
   section.append(element('p', 'summary', `Events: ${status.eventCount} · Actions: ${status.userActionCount} · Routes: ${status.routeChangeCount} · Errors: ${status.errorCount} · Network: ${status.networkCount}`));
   const notesSection = element('div', 'reproduction-notes');
   notesSection.append(element('h3', undefined, 'Reproduction Notes'));
