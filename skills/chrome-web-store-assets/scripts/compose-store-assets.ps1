@@ -23,7 +23,22 @@ param(
     [int]$UiCropWidth = 550,
 
     [ValidateRange(1, 800)]
-    [int]$UiCropHeight = 754
+    [int]$UiCropHeight = 754,
+
+    [ValidateSet('SidePanel', 'TopBanner')]
+    [string]$Layout = 'SidePanel',
+
+    [string]$BrandName = 'Arrow Button Mapper',
+
+    [string]$Tagline = '← / → でページ操作',
+
+    [string[]]$CaptionTitles = @('設定を記憶', '新しい操作を追加', '登録済みの操作を編集'),
+
+    [string[]]$CaptionBodies = @(
+        "クリックしたリンクやボタンを$([Environment]::NewLine)左右キーの操作として保存",
+        "URL と対象要素を指定して$([Environment]::NewLine)左右キーへ割り当て",
+        "保存した操作を$([Environment]::NewLine)いつでも確認・変更"
+    )
 )
 
 $ErrorActionPreference = 'Stop'
@@ -67,6 +82,10 @@ function Open-Bitmap {
 
 if ($ScreenshotSources.Count -ne 3) {
     throw 'Specify exactly three screenshot sources.'
+}
+
+if ($CaptionTitles.Count -ne 3 -or $CaptionBodies.Count -ne 3) {
+    throw 'Specify exactly three caption titles and bodies.'
 }
 
 if (($UiCropX + $UiCropWidth) -gt 1280 -or ($UiCropY + $UiCropHeight) -gt 800) {
@@ -132,12 +151,6 @@ finally {
     $iconSourceBitmap.Dispose()
 }
 
-$captions = @(
-    @('設定を記憶', "クリックしたリンクやボタンを$([Environment]::NewLine)左右キーの操作として保存"),
-    @('新しい操作を追加', "URL と対象要素を指定して$([Environment]::NewLine)左右キーへ割り当て"),
-    @('登録済みの操作を編集', "保存した操作を$([Environment]::NewLine)いつでも確認・変更")
-)
-
 for ($index = 0; $index -lt $ScreenshotSources.Count; $index++) {
     $source = Open-Bitmap $ScreenshotSources[$index]
     try {
@@ -161,33 +174,40 @@ for ($index = 0; $index -lt $ScreenshotSources.Count; $index++) {
                 $blueBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(30, 64, 175))
                 $mutedBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(71, 85, 105))
                 $shadowBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(30, 15, 23, 42))
-                $brandFont = [System.Drawing.Font]::new('Yu Gothic UI', 21, [System.Drawing.FontStyle]::Bold)
-                $titleFont = [System.Drawing.Font]::new('Yu Gothic UI', 30, [System.Drawing.FontStyle]::Bold)
-                $bodyFont = [System.Drawing.Font]::new('Yu Gothic UI', 15)
-                $smallFont = [System.Drawing.Font]::new('Yu Gothic UI', 12)
+                # Meiryo UI ships with Windows and renders Japanese captions without missing-glyph boxes.
+                $brandFont = [System.Drawing.Font]::new('Meiryo UI', 21, [System.Drawing.FontStyle]::Bold)
+                $titleFont = [System.Drawing.Font]::new('Meiryo UI', 30, [System.Drawing.FontStyle]::Bold)
+                $bodyFont = [System.Drawing.Font]::new('Meiryo UI', 15)
+                $smallFont = [System.Drawing.Font]::new('Meiryo UI', 12)
                 try {
-                    $graphics.FillRectangle($panelBrush, $panelBounds)
-                    $graphics.FillEllipse($shapeBrush, -142, 610, 350, 350)
-                    $graphics.FillEllipse($shapeBrush, 334, -92, 250, 250)
-                    $graphics.DrawLine($linePen, 68, 128, 164, 128)
-
-                    $flatIcon = Open-Bitmap $iconOutput
-                    try {
-                        $graphics.DrawImage($flatIcon, [System.Drawing.Rectangle]::new(68, 58, 54, 54))
+                    if ($Layout -eq 'TopBanner') {
+                        $graphics.Clear([System.Drawing.Color]::FromArgb(15, 23, 42))
+                        $graphics.FillRectangle($panelBrush, [System.Drawing.Rectangle]::new(0, 0, 1280, 120))
+                        $flatIcon = Open-Bitmap $iconOutput
+                        try { $graphics.DrawImage($flatIcon, [System.Drawing.Rectangle]::new(42, 32, 56, 56)) }
+                        finally { $flatIcon.Dispose() }
+                        $graphics.DrawString($BrandName, $brandFont, $darkBrush, 118, 30)
+                        $graphics.DrawString($CaptionTitles[$index], $titleFont, $darkBrush, [System.Drawing.RectangleF]::new(500, 24, 720, 44))
+                        $graphics.DrawString($CaptionBodies[$index], $smallFont, $mutedBrush, [System.Drawing.RectangleF]::new(502, 72, 700, 36))
+                        $graphics.DrawImage($source, [System.Drawing.Rectangle]::new(0, 120, 1280, 680), [System.Drawing.Rectangle]::new(0, 0, 1280, 800), [System.Drawing.GraphicsUnit]::Pixel)
                     }
-                    finally {
-                        $flatIcon.Dispose()
+                    else {
+                        $graphics.FillRectangle($panelBrush, $panelBounds)
+                        $graphics.FillEllipse($shapeBrush, -142, 610, 350, 350)
+                        $graphics.FillEllipse($shapeBrush, 334, -92, 250, 250)
+                        $graphics.DrawLine($linePen, 68, 128, 164, 128)
+                        $flatIcon = Open-Bitmap $iconOutput
+                        try { $graphics.DrawImage($flatIcon, [System.Drawing.Rectangle]::new(68, 58, 54, 54)) }
+                        finally { $flatIcon.Dispose() }
+                        $graphics.DrawString($BrandName, $brandFont, $darkBrush, 136, 72)
+                        $graphics.DrawString($Tagline, $smallFont, $blueBrush, 68, 162)
+                        $graphics.DrawString($CaptionTitles[$index], $titleFont, $darkBrush, [System.Drawing.RectangleF]::new(68, 205, 420, 90))
+                        $graphics.DrawString($CaptionBodies[$index], $bodyFont, $mutedBrush, [System.Drawing.RectangleF]::new(70, 304, 390, 110))
+                        $graphics.DrawString('Chrome 拡張機能', $smallFont, $blueBrush, 70, 700)
+                        $graphics.FillRectangle($shadowBrush, [System.Drawing.Rectangle]::new(602, 28, 560, 760))
+                        $graphics.FillRectangle([System.Drawing.Brushes]::White, [System.Drawing.Rectangle]::new(594, 18, 560, 760))
+                        $graphics.DrawImage($source, [System.Drawing.Rectangle]::new(599, 21, 550, 754), [System.Drawing.Rectangle]::new($UiCropX, $UiCropY, $UiCropWidth, $UiCropHeight), [System.Drawing.GraphicsUnit]::Pixel)
                     }
-
-                    $graphics.DrawString('Arrow Button Mapper', $brandFont, $darkBrush, 136, 72)
-                    $graphics.DrawString('← / → でページ操作', $smallFont, $blueBrush, 68, 162)
-                    $graphics.DrawString($captions[$index][0], $titleFont, $darkBrush, [System.Drawing.RectangleF]::new(68, 205, 420, 90))
-                    $graphics.DrawString($captions[$index][1], $bodyFont, $mutedBrush, [System.Drawing.RectangleF]::new(70, 304, 390, 110))
-                    $graphics.DrawString('Chrome 拡張機能', $smallFont, $blueBrush, 70, 700)
-
-                    $graphics.FillRectangle($shadowBrush, [System.Drawing.Rectangle]::new(602, 28, 560, 760))
-                    $graphics.FillRectangle([System.Drawing.Brushes]::White, [System.Drawing.Rectangle]::new(594, 18, 560, 760))
-                    $graphics.DrawImage($source, [System.Drawing.Rectangle]::new(599, 21, 550, 754), [System.Drawing.Rectangle]::new($UiCropX, $UiCropY, $UiCropWidth, $UiCropHeight), [System.Drawing.GraphicsUnit]::Pixel)
                 }
                 finally {
                     $panelBrush.Dispose(); $shapeBrush.Dispose(); $linePen.Dispose(); $darkBrush.Dispose(); $blueBrush.Dispose(); $mutedBrush.Dispose(); $shadowBrush.Dispose()
