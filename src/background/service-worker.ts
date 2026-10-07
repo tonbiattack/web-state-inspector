@@ -1,5 +1,6 @@
 import type { CookieEntry, CookieRequest, CookieResponse } from '../shared/types.js';
 import type { FrameInfo, FrameLifecycleEvent } from '../shared/types.js';
+import { FrameTrackingRegistry } from './frame-tracking.js';
 
 function formatExpiry(expirationDate?: number): string {
   if (!expirationDate) return 'Session';
@@ -24,6 +25,7 @@ function toCookieEntry(cookie: chrome.cookies.Cookie): CookieEntry {
 // Rebuilt from chrome.webNavigation.getAllFrames on demand and updated
 // incrementally on onCommitted events.
 const frameCache = new Map<number, Map<number, FrameInfo>>();
+const frameTracking = new FrameTrackingRegistry();
 
 function originFromUrl(url: string): string {
   try { return new URL(url).origin; } catch { return url; }
@@ -81,6 +83,7 @@ function emitFrameLifecycleEvent(tabId: number, kind: 'frame-added' | 'frame-nav
 // Listen for frame navigations and emit lifecycle events.
 chrome.webNavigation.onCommitted.addListener((details) => {
   const { tabId, frameId, parentFrameId = -1, url } = details;
+  if (!frameTracking.isActive(tabId)) return;
   const tabFrames = frameCache.get(tabId);
   const existing = tabFrames?.get(frameId);
 
@@ -109,6 +112,7 @@ chrome.webNavigation.onCommitted.addListener((details) => {
 // rebuilding the cache and diffing against the previous snapshot.
 chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   const { tabId, frameId } = details;
+  if (!frameTracking.isActive(tabId)) return;
   if (frameId !== 0) return; // Only top-level navigations clear the frame tree significantly.
   const tabFrames = frameCache.get(tabId);
   if (!tabFrames) return;
@@ -120,13 +124,23 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 });
 
 // Clean up cache when a tab is closed.
-chrome.tabs.onRemoved.addListener((tabId) => { frameCache.delete(tabId); });
+chrome.tabs.onRemoved.addListener((tabId) => { frameTracking.stop(tabId); frameCache.delete(tabId); });
 
 // ── Existing cookie handler ───────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener(
-  (message: CookieRequest | { type: string }, _sender, sendResponse: (response: CookieResponse) => void) => {
-    if ((message as { type?: string }).type !== 'GET_COOKIES') return;
+  (message: CookieRequest | { type: string; tabId?: unknown; active?: unknown; reset?: unknown }, _sender, sendResponse: (response: CookieResponse) => void) => {
+    const type = (message as { type?: string }).type;
+    if (type === 'SET_FRAME_TRACKING') {
+      const request = message as { tabId?: unknown; active?: unknown; reset?: unknown };
+      if (!Number.isInteger(request.tabId) || typeof request.active !== 'boolean') return;
+      const tabId = request.tabId as number;
+      if (request.active) frameTracking.start(tabId);
+      else frameTracking.stop(tabId);
+      if (!request.active || request.reset) frameCache.delete(tabId);
+      return;
+    }
+    if (type !== 'GET_COOKIES') return;
     const cookieRequest = message as CookieRequest;
     if (typeof cookieRequest.url !== 'string') return;
 

@@ -11,6 +11,7 @@ import { NetworkUpdateState } from './network-update-state.js';
 import { compareRecordings } from './recording-analysis.js';
 import { handleBridgeRequest } from '../bridge/bridge-handler.js';
 import type { BridgeRequest, BridgeResponse } from '../shared/ai-bridge-types.js';
+import { getExportSafetyNotice } from '../shared/export-safety-notice.js';
 import { PageEvaluator } from './page-evaluator.js';
 import { emptyReproductionNotes, normalizeReproductionNotes } from './reproduction-notes.js';
 import { SelectedElementService } from './selected-element-service.js';
@@ -829,7 +830,7 @@ function renderSelectedTimelineContext(timeline: TimelineEvent[]): HTMLElement |
     return `${when}  ${timelineIcon(event)} ${event.kind}  ${timelineDetails(event).replace(/\n/g, ' ')}`;
   }).join('\n')));
   const copy = element('button', 'action-button', 'Copy event context'); copy.type = 'button'; copy.addEventListener('click', () => { void copyEventContext(selected, copy); });
-  section.append(copy);
+  section.append(element('div', 'notice warning', getExportSafetyNotice()), copy);
   return section;
 }
 
@@ -1203,7 +1204,7 @@ function renderAiExport(): HTMLElement {
   const section = element('section');
   const status = debugSession.getStatus();
   const timeline = debugSession.getTimeline();
-  section.append(element('div', 'notice warning', 'Copy for AIは外部送信を行いません。貼り付け前にCookie、Authorization、token、個人情報、顧客情報などの機密情報を必ず確認してください。'));
+  section.append(element('div', 'notice warning', getExportSafetyNotice()));
   section.append(element('p', 'summary', `Events: ${status.eventCount} · Actions: ${status.userActionCount} · Routes: ${status.routeChangeCount} · Errors: ${status.errorCount} · Network: ${status.networkCount}`));
   const notesSection = element('div', 'reproduction-notes');
   notesSection.append(element('h3', undefined, 'Reproduction Notes'));
@@ -1350,6 +1351,14 @@ function startDebugPolling(): void {
   }, 500);
 }
 
+function setFrameTracking(active: boolean, reset = false): void {
+  void chrome.runtime.sendMessage({ type: 'SET_FRAME_TRACKING', tabId: chrome.devtools.inspectedWindow.tabId, active, reset });
+}
+
+window.addEventListener('pagehide', () => {
+  if (debugSession.getStatus().active) setFrameTracking(false);
+});
+
 async function startDebugRecording(): Promise<void> {
   setBody(renderUnavailable('User Action、Route Change、Storage、Network、Errorの記録を開始しています。'));
   const result = await debugSession.start();
@@ -1357,6 +1366,7 @@ async function startDebugRecording(): Promise<void> {
     setBody(renderUnavailable(result.error ?? 'Debug Recordingを開始できません。', true));
     return;
   }
+  setFrameTracking(true, true);
   changeTrackingActive = true;
   syncStoragePolling();
   startDebugPolling();
@@ -1364,6 +1374,7 @@ async function startDebugRecording(): Promise<void> {
 }
 
 async function stopDebugRecording(): Promise<void> {
+  setFrameTracking(false);
   const result = await debugSession.stop();
   if (!result.ok) {
     setBody(renderUnavailable(result.error ?? 'Debug Recordingを停止できません。', true));
@@ -1381,6 +1392,7 @@ async function clearDebugRecording(): Promise<void> {
     setBody(renderUnavailable(result.error ?? 'Debug Recordingを消去できません。', true));
     return;
   }
+  if (debugSession.getStatus().active) setFrameTracking(true, true);
   renderCurrentData();
 }
 

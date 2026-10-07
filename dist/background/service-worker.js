@@ -1,3 +1,4 @@
+import { FrameTrackingRegistry } from './frame-tracking.js';
 function formatExpiry(expirationDate) {
     if (!expirationDate)
         return 'Session';
@@ -20,6 +21,7 @@ function toCookieEntry(cookie) {
 // Rebuilt from chrome.webNavigation.getAllFrames on demand and updated
 // incrementally on onCommitted events.
 const frameCache = new Map();
+const frameTracking = new FrameTrackingRegistry();
 function originFromUrl(url) {
     try {
         return new URL(url).origin;
@@ -79,6 +81,8 @@ function emitFrameLifecycleEvent(tabId, kind, frameInfo, fromUrl) {
 // Listen for frame navigations and emit lifecycle events.
 chrome.webNavigation.onCommitted.addListener((details) => {
     const { tabId, frameId, parentFrameId = -1, url } = details;
+    if (!frameTracking.isActive(tabId))
+        return;
     const tabFrames = frameCache.get(tabId);
     const existing = tabFrames?.get(frameId);
     const frameInfo = buildFrameInfo(tabId, frameId, parentFrameId, url);
@@ -104,6 +108,8 @@ chrome.webNavigation.onCommitted.addListener((details) => {
 // rebuilding the cache and diffing against the previous snapshot.
 chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     const { tabId, frameId } = details;
+    if (!frameTracking.isActive(tabId))
+        return;
     if (frameId !== 0)
         return; // Only top-level navigations clear the frame tree significantly.
     const tabFrames = frameCache.get(tabId);
@@ -117,10 +123,24 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     frameCache.delete(tabId);
 });
 // Clean up cache when a tab is closed.
-chrome.tabs.onRemoved.addListener((tabId) => { frameCache.delete(tabId); });
+chrome.tabs.onRemoved.addListener((tabId) => { frameTracking.stop(tabId); frameCache.delete(tabId); });
 // ── Existing cookie handler ───────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message.type !== 'GET_COOKIES')
+    const type = message.type;
+    if (type === 'SET_FRAME_TRACKING') {
+        const request = message;
+        if (!Number.isInteger(request.tabId) || typeof request.active !== 'boolean')
+            return;
+        const tabId = request.tabId;
+        if (request.active)
+            frameTracking.start(tabId);
+        else
+            frameTracking.stop(tabId);
+        if (!request.active || request.reset)
+            frameCache.delete(tabId);
+        return;
+    }
+    if (type !== 'GET_COOKIES')
         return;
     const cookieRequest = message;
     if (typeof cookieRequest.url !== 'string')
@@ -155,4 +175,3 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     });
     return true;
 });
-export {};

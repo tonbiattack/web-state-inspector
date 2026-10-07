@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a reproducible problem with Web State Inspector.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include cookies, tokens, authorization headers, passwords, personal data, full request/response bodies, or private URLs. Redact all sensitive values before submitting.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior without sensitive data.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start Recording
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Extension version and Chrome version
+      placeholder: "Web State Inspector 0.1.0, Chrome 000"
+    validations:
+      required: true
