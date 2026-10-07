@@ -8,6 +8,6 @@
 | 2 | Network | `docs/img/スクリーンショット 2026-10-07 215627.png` |
 | 3 | AI Export | `docs/img/スクリーンショット 2026-10-07 215426.png` |
 
-`source/` はブラウザのツールバーと補助パネルを除いた 1280 × 800 の中間入力である。再生成時はまず `scripts/prepare-chrome-web-store-sources.ps1` を実行し、続けて `skills/chrome-web-store-assets/scripts/compose-store-assets.ps1` を `-Layout TopBanner` と実際の製品名・説明文で実行する。
+`source/` はブラウザのツールバーと補助パネルを除いた 1280 × 800 の中間入力である。再生成時はまず `scripts/prepare-chrome-web-store-sources.ps1` を実行し、続けて `skills/chrome-web-store-assets/scripts/compose-store-assets.ps1` を `-Layout TopBanner -IconInset 18` と実際の製品名・説明文で実行する。`18px` は Store の白い背景でロゴが窮屈に見えないための外側余白である。
 
 実在サービスの URL、Cookie、token、個人情報、社内情報を含むキャプチャは使用しない。
